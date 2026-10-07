@@ -1,6 +1,6 @@
 # Deidentifier
 
-Removes patient identifiers from photos of clinical material (paper notes, Optos, Cirrus OCT, EMR screens, letters) **on your own device**, so the cleaned image can be pasted into Claude for case presentations.
+Removes patient identifiers from photos of clinical material (paper notes, Optos, Cirrus OCT, EMR screens, letters) **on your own device**, so the cleaned images are safe to use in case presentations.
 
 - **Nothing is uploaded.** All processing (straightening, text recognition, redaction) runs in the browser. The page's Content-Security-Policy blocks every request to any other site.
 - **Nothing is kept.** Photos, search terms and text-scan results live only in memory. They are wiped when you press **End session**, close the app, or leave it idle for 10 minutes. The only thing saved is your box templates, which hold positions only.
@@ -21,7 +21,7 @@ Removes patient identifiers from photos of clinical material (paper notes, Optos
    - **Save as my template** stores the box positions for that image type. Do this once on a real image of each type, because the built-in presets are only starting guesses.
 6. **Review & export**:
    - The final image is re-scanned. Anything that still looks like an identifier outside the black boxes is outlined in red.
-   - Tick the checklist, then **Copy** (paste into Claude), **Save**, or **Share**.
+   - Tick the checklist, then **Copy**, **Save**, or **Share**.
    - Exports are re-encoded from scratch. They have no EXIF or GPS metadata, are cropped, use solid black boxes (never blur), and get a generic file name.
 
 ## Limits: your review is the final safeguard

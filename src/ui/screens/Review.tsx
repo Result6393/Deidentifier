@@ -144,7 +144,7 @@ export function ReviewStep({ img, onBack, onDone, onNextImage }: Props) {
         </button>
         <span class="spacer" />
         {canCopyImage() && (
-          <button class="btn primary" disabled={!ready} onClick={() => run('Copied. Paste it into Claude.', () => copyImage(out))}>
+          <button class="btn primary" disabled={!ready} onClick={() => run('Copied to clipboard.', () => copyImage(out))}>
             Copy
           </button>
         )}
