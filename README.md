@@ -11,12 +11,14 @@ Covers patient identifiers on photos of clinical material (paper notes, Optos, C
 1. **Import** a batch (select many photos, drag them onto the page, or share them to *Deidentifier* from the Android gallery), or use **Camera**. The in-app camera keeps originals out of your gallery. Imported photos stay in your gallery or downloads, so delete those originals yourself.
 2. **Tap a type** (Notes, Optos 1, Optos 2, Cirrus, Other). The preset black boxes appear immediately. The last type you used is applied automatically to the next photo you open, so a run of similar photos needs no taps.
 3. **Nudge the boxes**: drag to move, use the red handles to resize, **+ Box** to draw another, Delete to remove. Tap a box to print `RE` / `LE` / `OD` / `OS` / `OU` or custom text on it.
-4. Press **Mark done** (or Enter), then **Next** (or →). The filmstrip along the bottom shows every photo with its boxes: a green tick means done, a red `?` means no boxes yet. Tap any thumbnail to jump to it.
+4. Press **Mark done** (or Enter), then **Next** (or →, or swipe the photo left). The filmstrip along the bottom shows every photo with its boxes: a green tick means done, a red `?` means no boxes yet. Tap any thumbnail to jump to it.
 5. **Export** all of them: one ZIP, a folder (desktop Chrome/Edge), the Android share sheet, or separate downloads. Before exporting you get a warning listing any photo with no boxes or not marked done.
 
 **Layouts (saved box positions).** Each type has a **Layout** menu. *Built-in* is the starting guess. Once the boxes sit where you want them, press **Save boxes as new layout…** and name it (for example "Clinic A sticker"). You can keep several per type and switch between them from the menu. **Make default** (★) chooses the layout that new photos of that type start with. **Update** overwrites a layout with the current boxes, and **Delete layout** removes it. Layouts store positions and a name only, never the image or any text, and they stay on this device in the browser's local storage. Clearing the browser's site data removes them.
 
 Other tools: **↻** rotates, **Straighten** lets you drag four corners onto a page or screen that was photographed at an angle (this resets that photo's boxes to its layout), **Solid preview** shows the boxes exactly as they will be exported, and **Reset boxes** puts the selected layout back.
+
+**Copy** puts the photo on screen, with its boxes applied, on the clipboard (PNG, up to 2000 px) ready to paste. Swiping works on an empty part of the photo at 1× zoom; it won't trigger when you drag a box, draw, or pan a zoomed photo.
 
 Keys: ← / → previous / next, Enter done, Delete removes the selected box, Esc deselects.
 

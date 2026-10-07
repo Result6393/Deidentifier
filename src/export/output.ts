@@ -87,3 +87,10 @@ export async function shareFiles(files: NamedBlob[]): Promise<boolean> {
     throw e;
   }
 }
+
+export const canCopyImage = () => typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
+
+/** Copies a PNG to the clipboard. Takes a promise so the click's permission lasts while it renders. */
+export async function copyImage(png: Promise<Blob>): Promise<void> {
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+}

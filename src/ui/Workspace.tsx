@@ -16,6 +16,8 @@ import {
   type WorkImage,
 } from '../state/session';
 import type { Box, DocType } from '../types';
+import { renderOne } from '../export/batch';
+import { canCopyImage, copyImage } from '../export/output';
 import { Filmstrip } from './Filmstrip';
 import { RedactCanvas } from './RedactCanvas';
 import { StraightenModal } from './StraightenModal';
@@ -165,6 +167,15 @@ export function Workspace({ onImport, onCamera }: { onImport: () => void; onCame
     setMessage(`Deleted “${active.name}”. This image keeps its current boxes.`);
     changed();
   };
+  const copyCurrent = async () => {
+    if (!img.boxes.length && !confirm('This image has no black boxes. Copy it anyway?')) return;
+    try {
+      await copyImage(renderOne(img, { limit: true, format: 'image/png' }));
+      setMessage('Copied to clipboard.');
+    } catch (e) {
+      setMessage(`Copy failed: ${(e as Error).message}`);
+    }
+  };
   const setStamp = (b: Box, stamp?: string) => {
     b.stamp = stamp;
     edit();
@@ -230,6 +241,11 @@ export function Workspace({ onImport, onCamera }: { onImport: () => void; onCame
           <button class={`btn ${img.done ? 'primary' : ''}`} onClick={() => ((img.done = !img.done), changed())} aria-pressed={img.done} data-testid="done" title="Enter">
             {img.done ? '✓ Done' : 'Mark done'}
           </button>
+          {canCopyImage() && (
+            <button class="btn" onClick={copyCurrent} data-testid="copy" title="Copy this image, with boxes applied, to the clipboard">
+              Copy
+            </button>
+          )}
           <span class="spacer" />
           <button class={`btn ${drawMode ? 'primary' : ''}`} onClick={() => setDrawMode(!drawMode)} data-testid="draw">
             {drawMode ? 'Drag on image…' : '+ Box'}
@@ -278,7 +294,7 @@ export function Workspace({ onImport, onCamera }: { onImport: () => void; onCame
           </div>
         )}
 
-        <RedactCanvas img={img} canvas={canvas} selected={selected} setSelected={setSelected} drawMode={drawMode} setDrawMode={setDrawMode} solid={solid} zoom={ZOOMS[zoom]} onEdit={edit} />
+        <RedactCanvas img={img} canvas={canvas} selected={selected} setSelected={setSelected} drawMode={drawMode} setDrawMode={setDrawMode} solid={solid} zoom={ZOOMS[zoom]} onEdit={edit} onSwipe={go} />
 
         <div class="row wrap small">
           <label class="check">

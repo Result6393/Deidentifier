@@ -19,6 +19,18 @@ export function problems(images: WorkImage[]): string[] {
   return out;
 }
 
+/** Renders one image with its boxes painted solid, decoded and released here. */
+export async function renderOne(img: WorkImage, opts: ExportOptions): Promise<Blob> {
+  const src = await decodeImage(img.blob, img.rotation, opts.limit ? 2400 : 4000);
+  const rendered = renderRedacted(src, img.boxes, opts.limit ? 2000 : null);
+  zeroCanvas(src);
+  try {
+    return await toBlob(rendered, opts.format);
+  } finally {
+    zeroCanvas(rendered);
+  }
+}
+
 /**
  * Renders every image with its boxes painted solid. One photo is decoded,
  * rendered, encoded and released at a time, so memory stays flat.
@@ -27,14 +39,7 @@ export async function renderBatch(images: WorkImage[], opts: ExportOptions, onPr
   const out: NamedBlob[] = [];
   for (let i = 0; i < images.length; i++) {
     const img = images[i];
-    const src = await decodeImage(img.blob, img.rotation, opts.limit ? 2400 : 4000);
-    const rendered = renderRedacted(src, img.boxes, opts.limit ? 2000 : null);
-    zeroCanvas(src);
-    try {
-      out.push({ name: exportName(i, opts.format), blob: await toBlob(rendered, opts.format) });
-    } finally {
-      zeroCanvas(rendered);
-    }
+    out.push({ name: exportName(i, opts.format), blob: await renderOne(img, opts) });
     onProgress(i + 1);
   }
   return out;

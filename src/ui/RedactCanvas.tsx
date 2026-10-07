@@ -20,13 +20,16 @@ interface Props {
   zoom: number;
   /** Called after any box is moved, resized, drawn or removed. */
   onEdit: () => void;
+  /** Called with +1 (next) or -1 (previous) after a horizontal swipe on the photo. */
+  onSwipe: (delta: number) => void;
 }
 
-export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, setDrawMode, solid, zoom, onEdit }: Props) {
+export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, setDrawMode, solid, zoom, onEdit, onSwipe }: Props) {
   const displayRef = useRef<HTMLCanvasElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [, tick] = useState(0);
+  const swipe = useRef<{ x: number; y: number; t: number; id: number } | null>(null);
 
   // Paint the decoded photo over the instant low-res placeholder.
   useEffect(() => {
@@ -59,10 +62,22 @@ export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, set
       setDrag(corner ? { kind: 'resize', id: b.id, start: p, orig: { ...b }, corner } : { kind: 'move', id: b.id, start: p, orig: { ...b } });
     } else {
       setSelected(null);
+      // A touch that starts on empty photo at 1× may become a swipe to the next photo.
+      if (zoom === 1 && e.pointerType !== 'mouse') swipe.current = { x: e.clientX, y: e.clientY, t: Date.now(), id: e.pointerId };
       return;
     }
     e.preventDefault();
     surfaceRef.current!.setPointerCapture(e.pointerId);
+  };
+
+  const endSwipe = (e: PointerEvent) => {
+    const s = swipe.current;
+    if (!s || s.id !== e.pointerId) return false;
+    swipe.current = null;
+    const dx = e.clientX - s.x;
+    const dy = e.clientY - s.y;
+    if (Date.now() - s.t < 800 && Math.abs(dx) > 60 && Math.abs(dx) > 1.5 * Math.abs(dy)) onSwipe(dx < 0 ? 1 : -1);
+    return true;
   };
 
   const onMove = (e: PointerEvent) => {
@@ -92,7 +107,9 @@ export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, set
     tick((n) => n + 1);
   };
 
-  const onUp = () => {
+  const onUp = (e: PointerEvent) => {
+    if (e.type === 'pointerup' && endSwipe(e)) return;
+    swipe.current = null;
     if (!drag) return;
     if (drag.kind === 'draw') {
       const b = img.boxes.find((x) => x.id === drag.id);
@@ -110,7 +127,7 @@ export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, set
     <div class="viewport">
       <div
         ref={surfaceRef}
-        class={`surface ${drawMode ? 'drawing' : ''}`}
+        class={`surface ${drawMode ? 'drawing' : ''} ${zoom === 1 && !drawMode ? 'swipeable' : ''}`}
         // At 1× the whole photo fits the frame; zoomed, it grows and the frame scrolls.
         style={{ aspectRatio: String(img.aspect), width: zoom === 1 ? `min(100%, calc(var(--frame-h) * ${img.aspect}))` : `${zoom * 100}%` }}
         onPointerDown={onDown}

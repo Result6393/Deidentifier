@@ -183,6 +183,27 @@ test('layouts: save a named layout, make it the default, new photos start with i
   expect(stored).not.toContain('TESTPERSON');
 });
 
+test('copy puts the redacted image on the clipboard', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByTestId('file-input').setInputFiles(fixtures.notes);
+  await type(page, 'notes');
+  await page.getByTestId('copy').click();
+  await expect(page.getByText('Copied to clipboard.')).toBeVisible();
+  const clip = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read();
+    const blob = await item.getType('image/png');
+    const bmp = await createImageBitmap(blob);
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(bmp, 0, 0);
+    const px = (x: number, y: number) => Array.from(ctx.getImageData(Math.round(x * bmp.width), Math.round(y * bmp.height), 1, 1).data.slice(0, 3));
+    return { types: item.types, sticker: px(0.75, 0.08), width: bmp.width };
+  });
+  expect(clip.types).toContain('image/png');
+  expect(Math.max(...clip.sticker)).toBeLessThan(20);
+  expect(clip.width).toBeLessThanOrEqual(2000);
+});
+
 test('straighten: manual corners warp the photo and reset its boxes', async ({ page }) => {
   await page.getByTestId('file-input').setInputFiles(fixtures.notes);
   await type(page, 'notes');
@@ -264,4 +285,49 @@ test('works fully offline once installed', async ({ page, context }) => {
 test.afterAll(() => {
   mkdirSync('test-results', { recursive: true });
   writeFileSync('test-results/.keep', '');
+});
+
+test.describe('touch', () => {
+  test.use({ hasTouch: true, viewport: { width: 420, height: 800 } });
+
+  /** A real touch gesture (pointerType "touch") dispatched through the browser. */
+  async function swipe(page: Page, from: [number, number], to: [number, number]) {
+    const cdp = await page.context().newCDPSession(page);
+    const pt = (p: [number, number]) => [{ x: p[0], y: p[1] }];
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(from) });
+    for (let i = 1; i <= 5; i++) {
+      const x = from[0] + ((to[0] - from[0]) * i) / 5;
+      const y = from[1] + ((to[1] - from[1]) * i) / 5;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pt([x, y]) });
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  }
+
+  test('swiping the photo moves to the next and previous photo', async ({ page }) => {
+    await importThree(page);
+    await expect(page.locator('.film')).toHaveCount(3);
+    await expect(page.getByTestId('count')).toHaveText('1 / 3');
+    const s = (await page.getByTestId('redact-surface').boundingBox())!;
+    const y = s.y + s.height * 0.6;
+    // Swipe left = next photo.
+    await swipe(page, [s.x + s.width * 0.8, y], [s.x + s.width * 0.2, y + 5]);
+    await expect(page.getByTestId('count')).toHaveText('2 / 3');
+    // Swipe right = previous photo.
+    const s2 = (await page.getByTestId('redact-surface').boundingBox())!;
+    await swipe(page, [s2.x + s2.width * 0.2, s2.y + s2.height * 0.6], [s2.x + s2.width * 0.8, s2.y + s2.height * 0.6 - 5]);
+    await expect(page.getByTestId('count')).toHaveText('1 / 3');
+  });
+
+  test('short, vertical or box-dragging touches do not change photo', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles([fixtures.notes, fixtures.cirrus]);
+    await expect(page.locator('.film')).toHaveCount(2);
+    await type(page, 'notes');
+    const s = (await page.getByTestId('redact-surface').boundingBox())!;
+    await swipe(page, [s.x + s.width * 0.5, s.y + s.height * 0.6], [s.x + s.width * 0.5 - 20, s.y + s.height * 0.6]);
+    await swipe(page, [s.x + s.width * 0.8, s.y + s.height * 0.5], [s.x + s.width * 0.3, s.y + s.height * 0.8]);
+    // Dragging the preset box sideways moves the box, not the photo.
+    const box = (await page.locator('.rbox').first().boundingBox())!;
+    await swipe(page, [box.x + box.width / 2, box.y + box.height / 2], [box.x + box.width / 2 - 100, box.y + box.height / 2]);
+    await expect(page.getByTestId('count')).toHaveText('1 / 2');
+  });
 });
