@@ -1,6 +1,9 @@
 import { defineConfig, type Plugin } from 'vite';
 import preact from '@preact/preset-vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { readFileSync } from 'node:fs';
+
+const { version } = JSON.parse(readFileSync('package.json', 'utf8')) as { version: string };
 
 // The page may only talk to its own origin. Image data is never sent anywhere,
 // and this policy blocks any accidental or injected attempt to do so.
@@ -24,6 +27,7 @@ const csp = (): Plugin => ({
 });
 
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(version) },
   // GitHub Pages serves the app from /<repo>/; set BASE in CI.
   base: process.env.BASE ?? '/',
   build: { target: 'es2022', sourcemap: false },

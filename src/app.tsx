@@ -87,7 +87,9 @@ export function App() {
   return (
     <div class="app">
       <header class="topbar">
-        <div class="brand">Deidentifier</div>
+        <div class="brand">
+          Deidentifier <span class="version">v{__APP_VERSION__}</span>
+        </div>
         <OfflineBadge />
         {!camera && (
           <>
