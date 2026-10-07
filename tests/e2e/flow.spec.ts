@@ -148,6 +148,41 @@ test('editing: drag a preset box, draw a new one, stamp it, delete it', async ({
   await expect(page.locator('.rbox')).toHaveCount(1);
 });
 
+test('layouts: save a named layout, make it the default, new photos start with it', async ({ page }) => {
+  await page.getByTestId('file-input').setInputFiles([fixtures.notes, fixtures.notes]);
+  await expect(page.locator('.film')).toHaveCount(2);
+  await type(page, 'notes');
+  await expect(page.locator('.rbox')).toHaveCount(1);
+
+  // Add a second box, then save the arrangement under a name.
+  await page.getByTestId('draw').click();
+  const s = (await page.getByTestId('redact-surface').boundingBox())!;
+  await page.mouse.move(s.x + 30, s.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(s.x + 150, s.y + 240, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.locator('.rbox')).toHaveCount(2);
+  page.once('dialog', (d) => d.accept('Clinic A'));
+  await page.getByTestId('save-preset').click();
+  await expect(page.getByTestId('layout-select')).toContainText('Clinic A');
+  page.once('dialog', (d) => d.accept());
+  await page.getByTestId('make-default').click();
+  await expect(page.getByTestId('layout-select')).toContainText('Clinic A ★');
+
+  // The next photo, with its type chosen, starts with the saved layout (2 boxes).
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.rbox')).toHaveCount(2);
+  // The built-in layout is still one tap away.
+  await page.getByTestId('layout-select').selectOption({ label: 'Built-in' });
+  await expect(page.locator('.rbox')).toHaveCount(1);
+
+  // Saved layouts survive a reload and contain positions only.
+  await page.reload();
+  const stored = await page.evaluate(() => localStorage.getItem('deidentifier.presets.v2'));
+  expect(JSON.parse(stored!).notes.presets).toHaveLength(1);
+  expect(stored).not.toContain('TESTPERSON');
+});
+
 test('straighten: manual corners warp the photo and reset its boxes', async ({ page }) => {
   await page.getByTestId('file-input').setInputFiles(fixtures.notes);
   await type(page, 'notes');

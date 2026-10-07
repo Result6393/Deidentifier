@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'preact/hooks';
 import { DOC_TYPES } from '../presets/defaults';
-import { clearTemplate, hasTemplate, saveTemplate } from '../presets/templates';
+import { deletePreset, listPresets, savePreset, setDefault, startingPreset } from '../presets/templates';
 import {
+  applyPreset,
   changed,
   currentImage,
   getCanvas,
@@ -121,20 +122,48 @@ export function Workspace({ onImport, onCamera }: { onImport: () => void; onCame
   };
   const reset = () => {
     if (!img.type) return;
-    if (img.edited && !confirm('Replace your box changes on this image with the preset?')) return;
-    setType(img, img.type);
+    if (img.edited && !confirm('Replace your box changes on this image with the selected layout?')) return;
+    applyPreset(img, img.presetId);
     setSelected(null);
   };
-  const saveAsTemplate = () => {
-    if (!img.type || img.type === 'generic') return;
-    if (!confirm(`Save these ${img.boxes.length} box positions as your template for ${DOC_TYPES.find((t) => t.type === img.type)!.title}? Only positions are saved: no image, no text.`)) return;
-    saveTemplate(img.type, img.boxes);
-    setMessage('Template saved. New images of this type will start with it.');
+  const pickLayout = (id: string) => {
+    if (img.edited && !confirm('Replace your box changes on this image with this layout?')) return;
+    applyPreset(img, id || null);
+    setSelected(null);
   };
-  const forgetTemplate = () => {
-    if (!img.type || !confirm('Forget your saved template and go back to the built-in preset for this type?')) return;
-    clearTemplate(img.type);
-    setMessage('Saved template removed.');
+  const typeTitle = img.type ? DOC_TYPES.find((t) => t.type === img.type)!.title : '';
+  const presets = img.type ? listPresets(img.type) : [];
+  const active = presets.find((p) => p.id === img.presetId) ?? null;
+  const defaultId = img.type ? startingPreset(img.type) : null;
+  const saveNewPreset = () => {
+    if (!img.type) return;
+    const name = prompt(`Name this layout for ${typeTitle} (positions only are saved: no image, no text):`, active ? `${active.name} copy` : 'My layout');
+    if (name === null) return;
+    const p = savePreset(img.type, name, img.boxes);
+    img.presetId = p.id;
+    img.edited = false;
+    setMessage(`Saved “${p.name}”. Use “Make default” to start new ${typeTitle} images with it.`);
+    changed();
+  };
+  const updatePreset = () => {
+    if (!img.type || !active || !confirm(`Overwrite “${active.name}” with the boxes on this image?`)) return;
+    savePreset(img.type, '', img.boxes, active.id);
+    img.edited = false;
+    setMessage(`Updated “${active.name}”.`);
+    changed();
+  };
+  const makeDefault = () => {
+    if (!img.type) return;
+    setDefault(img.type, img.presetId);
+    setMessage(`New ${typeTitle} images will now start with ${active ? `“${active.name}”` : 'the built-in layout'}.`);
+    changed();
+  };
+  const removePreset = () => {
+    if (!img.type || !active || !confirm(`Delete the saved layout “${active.name}”?`)) return;
+    deletePreset(img.type, active.id);
+    img.presetId = null;
+    setMessage(`Deleted “${active.name}”. This image keeps its current boxes.`);
+    changed();
   };
   const setStamp = (b: Box, stamp?: string) => {
     b.stamp = stamp;
@@ -152,6 +181,41 @@ export function Workspace({ onImport, onCamera }: { onImport: () => void; onCame
           ))}
           {!img.type && <span class="muted small">Choose a type to place the boxes</span>}
         </div>
+
+        {img.type && (
+          <div class="row wrap small layout" data-testid="layout-row">
+            <label>
+              Layout{' '}
+              <select value={img.presetId ?? ''} onChange={(e) => pickLayout(e.currentTarget.value)} data-testid="layout-select">
+                <option value="">Built-in{defaultId === null ? ' ★' : ''}</option>
+                {presets.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                    {p.id === defaultId ? ' ★' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button class="link" onClick={saveNewPreset} data-testid="save-preset">
+              Save boxes as new layout…
+            </button>
+            {active && (
+              <button class="link" onClick={updatePreset}>
+                Update “{active.name}”
+              </button>
+            )}
+            {(img.presetId ?? null) !== defaultId && (
+              <button class="link" onClick={makeDefault} data-testid="make-default">
+                Make default
+              </button>
+            )}
+            {active && (
+              <button class="link danger" onClick={removePreset}>
+                Delete layout
+              </button>
+            )}
+          </div>
+        )}
 
         <div class="toolbar row wrap">
           <button class="btn" onClick={() => go(-1)} disabled={index === 0} aria-label="Previous image" data-testid="prev">
@@ -222,16 +286,8 @@ export function Workspace({ onImport, onCamera }: { onImport: () => void; onCame
           </label>
           <span class="spacer" />
           <button class="link" onClick={reset} disabled={!img.type}>
-            Reset to preset
+            Reset boxes
           </button>
-          <button class="link" onClick={saveAsTemplate} disabled={!img.type || img.type === 'generic'}>
-            Save as my template
-          </button>
-          {img.type && hasTemplate(img.type) && (
-            <button class="link" onClick={forgetTemplate}>
-              Forget template
-            </button>
-          )}
         </div>
         {message && <p class="small" role="status">{message}</p>}
         <p class="muted small">Dark boxes are covered with solid black on export. Check every image yourself, including handwriting, before exporting.</p>

@@ -14,7 +14,9 @@ Covers patient identifiers on photos of clinical material (paper notes, Optos, C
 4. Press **Mark done** (or Enter), then **Next** (or →). The filmstrip along the bottom shows every photo with its boxes: a green tick means done, a red `?` means no boxes yet. Tap any thumbnail to jump to it.
 5. **Export** all of them: one ZIP, a folder (desktop Chrome/Edge), the Android share sheet, or separate downloads. Before exporting you get a warning listing any photo with no boxes or not marked done.
 
-Other tools: **↻** rotates, **Straighten** lets you drag four corners onto a page or screen that was photographed at an angle (this resets that photo's boxes to the preset), **Solid preview** shows the boxes exactly as they will be exported, and **Save as my template** stores the current box positions for that type. Do this once on a real image of each type, because the built-in presets are only starting guesses.
+**Layouts (saved box positions).** Each type has a **Layout** menu. *Built-in* is the starting guess. Once the boxes sit where you want them, press **Save boxes as new layout…** and name it (for example "Clinic A sticker"). You can keep several per type and switch between them from the menu. **Make default** (★) chooses the layout that new photos of that type start with. **Update** overwrites a layout with the current boxes, and **Delete layout** removes it. Layouts store positions and a name only, never the image or any text, and they stay on this device in the browser's local storage. Clearing the browser's site data removes them.
+
+Other tools: **↻** rotates, **Straighten** lets you drag four corners onto a page or screen that was photographed at an angle (this resets that photo's boxes to its layout), **Solid preview** shows the boxes exactly as they will be exported, and **Reset boxes** puts the selected layout back.
 
 Keys: ← / → previous / next, Enter done, Delete removes the selected box, Esc deselects.
 
@@ -47,7 +49,7 @@ Test images are drawn at test time with a fictional patient (`tests/e2e/fixtures
 | Path | Purpose |
 |---|---|
 | `src/state/session.ts` | In-memory session, image decoding cache, `wipe()` |
-| `src/presets/` | Default box positions and user templates (geometry only) |
+| `src/presets/` | Built-in box positions and the user's saved, named layouts (geometry only) |
 | `src/ui/Workspace.tsx` | Type chips, toolbar, filmstrip navigation, keyboard shortcuts |
 | `src/ui/RedactCanvas.tsx` | Box drawing, moving and resizing |
 | `src/export/` | Rendering with solid boxes, ZIP writer, save/share helpers |

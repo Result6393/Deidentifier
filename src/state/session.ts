@@ -1,4 +1,4 @@
-import { loadPreset } from '../presets/templates';
+import { presetBoxes, startingPreset } from '../presets/templates';
 import { makeBox, rotateRect90 } from '../editor/boxes';
 import type { Box, DocType } from '../types';
 
@@ -15,6 +15,8 @@ export interface WorkImage {
   /** Quarter turns clockwise applied on top of the blob. */
   rotation: number;
   type: DocType | null;
+  /** Saved preset the boxes were seeded from; null means the built-in layout. */
+  presetId: string | null;
   boxes: Box[];
   /** True once the user has moved, drawn, deleted or stamped a box. */
   edited: boolean;
@@ -137,14 +139,24 @@ export function select(id: string): void {
   changed();
 }
 
-const seed = (type: DocType): Box[] => loadPreset(type).map((r) => makeBox(r));
+const seed = (type: DocType, presetId: string | null): Box[] => presetBoxes(type, presetId).map((r) => makeBox(r));
 
-/** Chooses the image type and drops in that type's preset boxes. */
+/** Chooses the image type and drops in that type's default preset boxes. */
 export function setType(img: WorkImage, type: DocType): void {
   img.type = type;
-  img.boxes = seed(type);
+  img.presetId = startingPreset(type);
+  img.boxes = seed(type, img.presetId);
   img.edited = false;
   session.lastType = type;
+  changed();
+}
+
+/** Replaces this image's boxes with a saved preset (null = the built-in layout). */
+export function applyPreset(img: WorkImage, presetId: string | null): void {
+  if (!img.type) return;
+  img.presetId = presetId;
+  img.boxes = seed(img.type, presetId);
+  img.edited = false;
   changed();
 }
 
@@ -164,7 +176,7 @@ export async function replaceBlob(img: WorkImage, blob: Blob, canvas: HTMLCanvas
   img.thumb = makeThumb(canvas);
   img.thumbRot = 0;
   img.aspect = canvas.width / canvas.height;
-  if (img.type) img.boxes = seed(img.type);
+  if (img.type) img.boxes = seed(img.type, img.presetId);
   img.edited = false;
   dropCanvas(img.id);
   changed();
@@ -193,7 +205,7 @@ export async function addFiles(files: Blob[]): Promise<number> {
         zeroCanvas(canvas);
         return failed;
       }
-      const img: WorkImage = { id: newId(), blob, thumb: makeThumb(canvas), aspect: canvas.width / canvas.height, thumbRot: 0, rotation: 0, type: null, boxes: [], edited: false, done: false };
+      const img: WorkImage = { id: newId(), blob, thumb: makeThumb(canvas), aspect: canvas.width / canvas.height, thumbRot: 0, rotation: 0, type: null, presetId: null, boxes: [], edited: false, done: false };
       cache.set(img.id, Promise.resolve(canvas));
       session.images.push(img);
       session.currentId ??= img.id;
