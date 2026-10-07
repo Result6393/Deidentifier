@@ -6,7 +6,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 // and this policy blocks any accidental or injected attempt to do so.
 const CSP = [
   "default-src 'none'",
-  "script-src 'self' 'wasm-unsafe-eval'",
+  "script-src 'self'",
   "worker-src 'self'",
   "connect-src 'self'",
   "img-src 'self' blob: data:",
@@ -36,8 +36,7 @@ export default defineConfig({
       filename: 'sw.ts',
       injectRegister: false,
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,svg,gz}'],
-        maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
+        globPatterns: ['**/*.{js,css,html,svg}'],
       },
       manifest: {
         name: 'Deidentifier',

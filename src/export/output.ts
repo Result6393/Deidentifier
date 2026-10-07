@@ -1,44 +1,22 @@
 export type Format = 'image/jpeg' | 'image/png';
 
+export interface NamedBlob {
+  name: string;
+  blob: Blob;
+}
+
 export function toBlob(canvas: HTMLCanvasElement, type: Format): Promise<Blob> {
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not encode image'))), type, 0.92),
   );
 }
 
-let counter = 1;
 /** Generic file names only: never derived from the original photo's name. */
-export const exportName = (type: Format) => `case-image-${counter++}.${type === 'image/png' ? 'png' : 'jpg'}`;
+export const exportName = (index: number, type: Format) => `case-image-${String(index + 1).padStart(3, '0')}.${type === 'image/png' ? 'png' : 'jpg'}`;
 
-export const canCopyImage = () => typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write;
+const isAbort = (e: unknown) => (e as DOMException)?.name === 'AbortError';
 
-export async function copyImage(canvas: HTMLCanvasElement): Promise<void> {
-  // Chrome's clipboard only accepts PNG images.
-  const blob = await toBlob(canvas, 'image/png');
-  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-}
-
-interface SavePickerWindow {
-  showSaveFilePicker?: (opts: unknown) => Promise<{ createWritable(): Promise<{ write(b: Blob): Promise<void>; close(): Promise<void> }> }>;
-}
-
-export async function saveImage(canvas: HTMLCanvasElement, type: Format): Promise<void> {
-  const blob = await toBlob(canvas, type);
-  const name = exportName(type);
-  const picker = (window as SavePickerWindow).showSaveFilePicker;
-  if (picker) {
-    try {
-      const ext = type === 'image/png' ? '.png' : '.jpg';
-      const handle = await picker({ suggestedName: name, types: [{ description: 'Image', accept: { [type]: [ext] } }] });
-      const w = await handle.createWritable();
-      await w.write(blob);
-      await w.close();
-      return;
-    } catch (e) {
-      if ((e as DOMException).name === 'AbortError') return;
-      // Fall back to a normal download.
-    }
-  }
+export function downloadBlob(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -49,6 +27,48 @@ export async function saveImage(canvas: HTMLCanvasElement, type: Format): Promis
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
+interface FileHandleLike {
+  createWritable(): Promise<{ write(b: Blob): Promise<void>; close(): Promise<void> }>;
+}
+interface DirHandleLike {
+  getFileHandle(name: string, opts: { create: boolean }): Promise<FileHandleLike>;
+}
+interface PickerWindow {
+  showDirectoryPicker?: (opts: unknown) => Promise<DirHandleLike>;
+}
+
+export const canSaveToFolder = () => typeof (window as PickerWindow).showDirectoryPicker === 'function';
+
+/** Asks the user for a folder (desktop Chrome/Edge). Must be called straight from a click. */
+export async function pickFolder(): Promise<DirHandleLike | null> {
+  try {
+    return await (window as PickerWindow).showDirectoryPicker!({ mode: 'readwrite' });
+  } catch (e) {
+    if (isAbort(e)) return null;
+    throw e;
+  }
+}
+
+export async function writeToFolder(dir: DirHandleLike, files: NamedBlob[]): Promise<void> {
+  for (const f of files) {
+    const w = await (await dir.getFileHandle(f.name, { create: true })).createWritable();
+    await w.write(f.blob);
+    await w.close();
+  }
+}
+
+export type { DirHandleLike };
+
+/** Downloads files one after another (the browser may ask to allow multiple downloads). */
+export async function downloadAll(files: NamedBlob[]): Promise<void> {
+  for (const f of files) {
+    downloadBlob(f.blob, f.name);
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+const asFiles = (files: NamedBlob[]) => files.map((f) => new File([f.blob], f.name, { type: f.blob.type }));
+
 export function canShareFiles(): boolean {
   try {
     const probe = new File([new Uint8Array(1)], 'x.jpg', { type: 'image/jpeg' });
@@ -58,12 +78,12 @@ export function canShareFiles(): boolean {
   }
 }
 
-export async function shareImage(canvas: HTMLCanvasElement, type: Format): Promise<void> {
-  const blob = await toBlob(canvas, type);
-  const file = new File([blob], exportName(type), { type });
+export async function shareFiles(files: NamedBlob[]): Promise<boolean> {
   try {
-    await navigator.share({ files: [file], title: 'De-identified image' });
+    await navigator.share({ files: asFiles(files), title: 'De-identified images' });
+    return true;
   } catch (e) {
-    if ((e as DOMException).name !== 'AbortError') throw e;
+    if (isAbort(e)) return false;
+    throw e;
   }
 }

@@ -12,8 +12,6 @@ export const FAKE = {
   phone: '0412 345 678',
 };
 
-export const SEARCH_TERMS = `${FAKE.surname}\n${FAKE.given}\n${FAKE.mrn}`;
-
 const DIR = join(process.cwd(), 'tests', 'fixtures', 'generated');
 
 /** Draws synthetic notes / Cirrus / Optos images in a blank page and saves them as PNGs. */

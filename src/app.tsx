@@ -1,87 +1,131 @@
-import { useEffect, useReducer, useState } from 'preact/hooks';
-import { changed, session, subscribe, wipe } from './state/session';
+import { useEffect, useReducer, useRef, useState } from 'preact/hooks';
+import { addFiles, session, subscribe, wipe } from './state/session';
 import { collectSharedFiles } from './capture/shareTarget';
-import { blobToCanvas, newWorkImage } from './capture/load';
-import { warmUpOcr } from './detect/ocr';
-import { StartScreen } from './ui/screens/Start';
-import { ImagesScreen } from './ui/screens/Images';
-import { CameraScreen } from './ui/screens/Camera';
-import { ProcessScreen } from './ui/screens/Process';
 import { OfflineBadge } from './ui/OfflineBadge';
-
-export type Screen = { name: 'start' } | { name: 'images' } | { name: 'camera' } | { name: 'process'; id: string };
+import { CameraScreen } from './ui/Camera';
+import { ExportMenu } from './ui/ExportMenu';
+import { Workspace } from './ui/Workspace';
 
 const IDLE_MS = 10 * 60 * 1000;
 
-const hasData = () => session.images.length > 0 || session.terms.patient.length > 0 || session.terms.clinician.length > 0 || !!session.label;
+const isImage = (f: File) => f.type.startsWith('image/');
 
 export function App() {
-  const [screen, setScreen] = useState<Screen>({ name: 'start' });
+  const [camera, setCamera] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => subscribe(() => rerender(0)), []);
+
+  const importFiles = async (files: File[]) => {
+    const images = files.filter(isImage);
+    if (!images.length) return;
+    const failed = await addFiles(images);
+    if (failed) setNotice(`${failed} file${failed > 1 ? 's' : ''} could not be opened as an image.`);
+  };
 
   useEffect(() => {
-    const unsubscribe = subscribe(() => rerender(0));
-    return () => void unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    warmUpOcr();
-    // Automatic wipe after inactivity, and whenever the page is closed.
+    // Wipe automatically after inactivity, and whenever the page is closed.
     let timer = 0;
     const reset = () => {
       clearTimeout(timer);
       timer = window.setTimeout(() => {
-        if (!hasData()) return;
+        if (!session.images.length) return;
         wipe();
-        setScreen({ name: 'start' });
+        setCamera(false);
         setNotice('Session cleared after 10 minutes of inactivity. Nothing was kept.');
       }, IDLE_MS);
     };
     const events = ['pointerdown', 'keydown', 'wheel'] as const;
     events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
     window.addEventListener('pagehide', wipe);
+
+    const over = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes('Files')) return;
+      e.preventDefault();
+      setDragOver(true);
+    };
+    const leave = (e: DragEvent) => {
+      if (e.relatedTarget === null) setDragOver(false);
+    };
+    const drop = (e: DragEvent) => {
+      if (!e.dataTransfer?.files.length) return;
+      e.preventDefault();
+      setDragOver(false);
+      void importFiles(Array.from(e.dataTransfer.files));
+    };
+    window.addEventListener('dragover', over);
+    window.addEventListener('dragleave', leave);
+    window.addEventListener('drop', drop);
+
     reset();
     return () => {
       clearTimeout(timer);
       events.forEach((e) => window.removeEventListener(e, reset));
       window.removeEventListener('pagehide', wipe);
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('dragleave', leave);
+      window.removeEventListener('drop', drop);
     };
   }, []);
 
   useEffect(() => {
-    collectSharedFiles().then(async (files) => {
-      if (!files.length) return;
-      for (const f of files) {
-        try {
-          session.images.push(newWorkImage(await blobToCanvas(f)));
-        } catch {
-          setNotice('One of the shared files could not be opened as an image.');
-        }
-      }
-      changed();
-      setScreen({ name: 'images' });
-    });
+    void collectSharedFiles().then((files) => importFiles(files));
   }, []);
 
   const endSession = () => {
-    if (hasData() && !confirm('End session? All photos and search terms in this session will be deleted from memory.')) return;
+    if (session.images.length && !confirm('End session? All photos and boxes in this session will be deleted from memory.')) return;
     wipe();
-    setScreen({ name: 'start' });
-    setNotice('Session ended. All photos and search terms have been deleted from memory.');
+    setCamera(false);
+    setNotice('Session ended. All photos have been deleted from memory.');
   };
+
+  const hasImages = session.images.length > 0;
 
   return (
     <div class="app">
       <header class="topbar">
         <div class="brand">Deidentifier</div>
         <OfflineBadge />
-        {hasData() && (
+        {!camera && (
+          <>
+            <button class="btn" onClick={() => fileRef.current?.click()}>
+              Import
+            </button>
+            <button class="btn" onClick={() => setCamera(true)}>
+              Camera
+            </button>
+          </>
+        )}
+        {hasImages && !camera && <ExportMenu />}
+        {hasImages && (
           <button class="btn danger small" onClick={endSession}>
             End session
           </button>
         )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          data-testid="file-input"
+          onChange={(e) => {
+            const input = e.currentTarget;
+            const files = Array.from(input.files ?? []);
+            // Drop the browser's reference to the picked files, then open them.
+            input.value = '';
+            void importFiles(files);
+          }}
+        />
       </header>
+      {session.importing && (
+        <div class="notice" role="status">
+          Opening photos… {session.importing.done}/{session.importing.total}
+        </div>
+      )}
       {notice && (
         <div class="notice" role="status">
           {notice}
@@ -90,20 +134,8 @@ export function App() {
           </button>
         </div>
       )}
-      <main>
-        {screen.name === 'start' && <StartScreen onContinue={() => setScreen({ name: 'images' })} />}
-        {screen.name === 'images' && (
-          <ImagesScreen
-            onCamera={() => setScreen({ name: 'camera' })}
-            onProcess={(id) => setScreen({ name: 'process', id })}
-            onEditTerms={() => setScreen({ name: 'start' })}
-          />
-        )}
-        {screen.name === 'camera' && <CameraScreen onDone={() => setScreen({ name: 'images' })} />}
-        {screen.name === 'process' && (
-          <ProcessScreen key={screen.id} id={screen.id} onExit={() => setScreen({ name: 'images' })} onOpen={(id) => setScreen({ name: 'process', id })} />
-        )}
-      </main>
+      <main>{camera ? <CameraScreen onDone={() => setCamera(false)} /> : <Workspace onImport={() => fileRef.current?.click()} onCamera={() => setCamera(true)} />}</main>
+      {dragOver && <div class="dropzone">Drop photos to import</div>}
     </div>
   );
 }

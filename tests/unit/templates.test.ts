@@ -5,7 +5,7 @@ describe('template storage', () => {
   it('keeps only box geometry, dropping text, stamps and bad values', () => {
     const raw = {
       notes: [
-        { x: 0.5, y: 0, w: 0.5, h: 0.2, stamp: 'TESTPERSON', reason: 'name', id: 'b1' },
+        { x: 0.5, y: 0, w: 0.5, h: 0.2, stamp: 'TESTPERSON', id: 'b1' },
         { x: 2, y: 0, w: 0.1, h: 0.1 },
         { x: '0.1', y: 0, w: 0.1, h: 0.1 },
       ],

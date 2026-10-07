@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { capturePhoto, startCamera, stopCamera } from '../../capture/camera';
-import { newWorkImage } from '../../capture/load';
-import { changed, onWipe, session } from '../../state/session';
+import { capturePhoto, startCamera, stopCamera } from '../capture/camera';
+import { addFiles, onWipe } from '../state/session';
 
 export function CameraScreen({ onDone }: { onDone: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -17,7 +16,7 @@ export function CameraScreen({ onDone }: { onDone: () => void }) {
         if (cancelled) stopCamera(s);
         else streamRef.current = s;
       })
-      .catch(() => setError('Camera unavailable. Allow camera access, or use Import photos instead.'));
+      .catch(() => setError('Camera unavailable. Allow camera access, or use Import instead.'));
     const unhook = onWipe(() => stopCamera(streamRef.current, videoRef.current));
     return () => {
       cancelled = true;
@@ -30,8 +29,8 @@ export function CameraScreen({ onDone }: { onDone: () => void }) {
     if (!streamRef.current || !videoRef.current) return;
     setBusy(true);
     try {
-      session.images.push(newWorkImage(await capturePhoto(streamRef.current, videoRef.current)));
-      changed();
+      const blob = await capturePhoto(streamRef.current, videoRef.current);
+      await addFiles([blob]);
       setCount((c) => c + 1);
     } catch {
       setError('Could not take the photo.');

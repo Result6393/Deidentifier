@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { apply, flatSize, homography } from '../../src/geometry/homography';
 import { warpQuad } from '../../src/geometry/warp';
-import { detectQuad } from '../../src/geometry/corners';
 
 class FakeImageData {
   data: Uint8ClampedArray;
@@ -29,14 +28,13 @@ describe('homography', () => {
   });
 });
 
-describe('warp + corner detection', () => {
-  // A bright skewed quad on a dark background.
+describe('warpQuad', () => {
+  // A bright skewed quad on a dark background flattens to (almost) all bright.
   const W = 120;
   const H = 90;
   const quad = [{ x: 20, y: 15 }, { x: 100, y: 10 }, { x: 105, y: 80 }, { x: 15, y: 75 }];
   const img = new ImageData(W, H);
   const inside = (x: number, y: number) => {
-    // Point-in-convex-polygon by cross products.
     for (let i = 0; i < 4; i++) {
       const a = quad[i];
       const b = quad[(i + 1) % 4];
@@ -51,25 +49,10 @@ describe('warp + corner detection', () => {
     }
   }
 
-  it('finds the bright quad corners', () => {
-    const found = detectQuad(img.data, W, H);
-    found.forEach((p, i) => {
-      expect(Math.abs(p.x * (W - 1) - quad[i].x)).toBeLessThan(3);
-      expect(Math.abs(p.y * (H - 1) - quad[i].y)).toBeLessThan(3);
-    });
-  });
-
-  it('flattens the quad so the result is all bright', () => {
+  it('flattens the quad', () => {
     const out = warpQuad(img, quad);
     let dark = 0;
     for (let i = 0; i < out.data.length; i += 4) if (out.data[i] < 128) dark++;
     expect(dark / (out.width * out.height)).toBeLessThan(0.05);
-  });
-
-  it('falls back to the full frame when there is no clear region', () => {
-    const flat = new ImageData(10, 10);
-    const q = detectQuad(flat.data, 10, 10);
-    expect(q[0].x).toBeLessThan(0.05);
-    expect(q[2].x).toBeGreaterThan(0.95);
   });
 });

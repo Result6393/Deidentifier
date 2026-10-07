@@ -3,15 +3,16 @@ import type { DocType, Rect } from '../types';
 export interface DocTypeInfo {
   type: DocType;
   title: string;
+  short: string;
   description: string;
 }
 
 export const DOC_TYPES: DocTypeInfo[] = [
-  { type: 'notes', title: 'Paper notes', description: 'Patient sticker in the top-right corner' },
-  { type: 'optos1', title: 'Optos (single)', description: 'One image; overlay top-left, toolbar on top' },
-  { type: 'optos2', title: 'Optos (pair)', description: 'Two images side by side; overlay on each, toolbar on top' },
-  { type: 'cirrus', title: 'Cirrus OCT', description: 'Identifiers in the report header' },
-  { type: 'generic', title: 'Other (EMR, letter)', description: 'No preset; text scan and manual boxes only' },
+  { type: 'notes', short: 'Notes', title: 'Paper notes', description: 'Patient sticker in the top-right corner' },
+  { type: 'optos1', short: 'Optos 1', title: 'Optos (single)', description: 'One image; overlay top-left, toolbar on top' },
+  { type: 'optos2', short: 'Optos 2', title: 'Optos (pair)', description: 'Two images side by side; overlay on each, toolbar on top' },
+  { type: 'cirrus', short: 'Cirrus', title: 'Cirrus OCT', description: 'Identifiers in the report header' },
+  { type: 'generic', short: 'Other', title: 'Other (EMR, letter)', description: 'No preset; text scan and manual boxes only' },
 ];
 
 /**

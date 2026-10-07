@@ -1,5 +1,3 @@
-import { bitmapToCanvas } from './load';
-
 export async function startCamera(video: HTMLVideoElement): Promise<MediaStream> {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
@@ -21,24 +19,26 @@ interface ImageCaptureLike {
 
 /**
  * Takes a full-resolution still when the browser supports ImageCapture,
- * otherwise grabs the current video frame. The photo goes straight into a
- * canvas and is never written to the gallery.
+ * otherwise grabs the current video frame. The photo is held in memory and
+ * never written to the gallery.
  */
-export async function capturePhoto(stream: MediaStream, video: HTMLVideoElement): Promise<HTMLCanvasElement> {
+export async function capturePhoto(stream: MediaStream, video: HTMLVideoElement): Promise<Blob> {
   const track = stream.getVideoTracks()[0];
   const IC = (window as unknown as { ImageCapture?: new (t: MediaStreamTrack) => ImageCaptureLike }).ImageCapture;
   if (IC && track) {
     try {
-      const blob = await new IC(track).takePhoto();
-      const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
-      try {
-        return bitmapToCanvas(bmp, bmp.width, bmp.height);
-      } finally {
-        bmp.close();
-      }
+      return await new IC(track).takePhoto();
     } catch {
       // Fall through to a video frame.
     }
   }
-  return bitmapToCanvas(video, video.videoWidth, video.videoHeight);
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth;
+  c.height = video.videoHeight;
+  c.getContext('2d')!.drawImage(video, 0, 0);
+  const blob = await new Promise<Blob | null>((resolve) => c.toBlob(resolve, 'image/jpeg', 0.95));
+  c.width = 0;
+  c.height = 0;
+  if (!blob) throw new Error('Could not capture');
+  return blob;
 }

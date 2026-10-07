@@ -1,41 +1,35 @@
 # Deidentifier
 
-Removes patient identifiers from photos of clinical material (paper notes, Optos, Cirrus OCT, EMR screens, letters) **on your own device**, so the cleaned images are safe to use in case presentations.
+Covers patient identifiers on photos of clinical material (paper notes, Optos, Cirrus OCT, EMR screens, letters) **on your own device**, so the cleaned images are safe to use in case presentations. Built for working through a whole batch quickly.
 
-- **Nothing is uploaded.** All processing (straightening, text recognition, redaction) runs in the browser. The page's Content-Security-Policy blocks every request to any other site.
-- **Nothing is kept.** Photos, search terms and text-scan results live only in memory. They are wiped when you press **End session**, close the app, or leave it idle for 10 minutes. The only thing saved is your box templates, which hold positions only.
-- **Works offline.** After the first visit, install it ("Add to Home screen" / "Install app") and it runs in airplane mode.
+- **Nothing is uploaded.** All processing runs in the browser. The page's Content-Security-Policy blocks every request to any other site.
+- **Nothing is kept.** Photos and boxes live only in memory. They are wiped when you press **End session**, close the app, or leave it idle for 10 minutes. The only thing saved is your box templates, which hold positions only.
+- **Works offline.** After the first visit, install it ("Add to Home screen" / "Install app") and it runs in airplane mode. The whole app is about 50 KB.
 
 ## Using it
 
-1. **New session**: optionally type the patient's surname, given names, MRN, Medicare number or phone, and any clinician names. The text scan finds these anywhere in the image. You can also enter an age/sex label (e.g. `67M`) to print over a covered DOB.
-2. **Add photos**: use **Take photo** (the in-app camera keeps originals out of your gallery), **Import photos**, or on Android share photos to *Deidentifier* from the gallery.
-3. **Choose the type**: Paper notes, Optos single, Optos pair, Cirrus, or Other.
-4. **Straighten**: drag the four corners onto the edges of the page or screen. Everything outside is cropped off.
-5. **Redact**:
-   - Preset boxes are placed for the image type.
-   - The on-device text scan adds boxes for search-term matches, Medicare numbers (check-digit validated), labelled MRN/UR/DOB/phone fields, addresses, emails and barcodes.
-   - Orange boxes are *suggestions* (e.g. "Dr …", "Mrs …"). Keep or dismiss each one.
-   - Drag boxes to move them and use the red handles to resize. Use **+ Box** to draw your own.
-   - Tap a box to print text on it, such as `RE` / `LE` for laterality or your age/sex label.
-   - **Save as my template** stores the box positions for that image type. Do this once on a real image of each type, because the built-in presets are only starting guesses.
-6. **Review & export**:
-   - The final image is re-scanned. Anything that still looks like an identifier outside the black boxes is outlined in red.
-   - Tick the checklist, then **Copy**, **Save**, or **Share**.
-   - Exports are re-encoded from scratch. They have no EXIF or GPS metadata, are cropped, use solid black boxes (never blur), and get a generic file name.
+1. **Import** a batch (select many photos, drag them onto the page, or share them to *Deidentifier* from the Android gallery), or use **Camera**. The in-app camera keeps originals out of your gallery. Imported photos stay in your gallery or downloads, so delete those originals yourself.
+2. **Tap a type** (Notes, Optos 1, Optos 2, Cirrus, Other). The preset black boxes appear immediately. The last type you used is applied automatically to the next photo you open, so a run of similar photos needs no taps.
+3. **Nudge the boxes**: drag to move, use the red handles to resize, **+ Box** to draw another, Delete to remove. Tap a box to print `RE` / `LE` / `OD` / `OS` / `OU` or custom text on it.
+4. Press **Mark done** (or Enter), then **Next** (or →). The filmstrip along the bottom shows every photo with its boxes: a green tick means done, a red `?` means no boxes yet. Tap any thumbnail to jump to it.
+5. **Export** all of them: one ZIP, a folder (desktop Chrome/Edge), the Android share sheet, or separate downloads. Before exporting you get a warning listing any photo with no boxes or not marked done.
+
+Other tools: **↻** rotates, **Straighten** lets you drag four corners onto a page or screen that was photographed at an angle (this resets that photo's boxes to the preset), **Solid preview** shows the boxes exactly as they will be exported, and **Save as my template** stores the current box positions for that type. Do this once on a real image of each type, because the built-in presets are only starting guesses.
+
+Keys: ← / → previous / next, Enter done, Delete removes the selected box, Esc deselects.
+
+Exports are re-encoded from scratch. They have solid black boxes (never blur), no EXIF or GPS metadata, and generic names (`case-image-001.jpg`…). The ZIP carries no timestamps or original file names.
 
 ## Limits: your review is the final safeguard
 
-- Text recognition reads **printed** text. It does **not** reliably read handwriting, so look for handwritten names yourself.
-- Presets are positioned for typical layouts. Check them on every image, especially angled photos of screens.
-- Imported photos remain in your phone gallery or downloads folder. Delete them there yourself, or use the in-app camera.
-- Android keyboards may learn words you type. Consider your keyboard's incognito mode when typing patient names.
-- Barcode detection uses the browser's built-in detector. It is available on Android Chrome but not on Windows. The sticker preset covers the barcode either way.
+- **There is no automatic detection.** The app only covers the areas you see boxed. It does not read the image, so it cannot tell you if something identifying is left outside a box (a name in a letter body, handwriting, a second sticker, a reflection). Check every image before exporting.
+- Presets assume identifiers sit in roughly the same place each time. If a photo is framed differently, adjust the boxes or use Straighten.
+- Android keyboards may learn text you type into the custom stamp field.
 
 ## Hosting (GitHub Pages)
 
-1. In the repository, go to **Settings → Pages** and set **Source** to **GitHub Actions**. Free accounts need the repository to be public; the code contains no patient data.
-2. Merge to `main`. The workflow in `.github/workflows/deploy.yml` runs the tests, builds, and publishes to `https://<user>.github.io/<repo>/`.
+1. In the repository, go to **Settings → Pages** and set **Source** to **GitHub Actions**.
+2. Pushing to `main` runs `.github/workflows/deploy.yml`: tests, build, and publish to `https://<user>.github.io/<repo>/`.
 3. Open that URL once on each device, install it, then test it in airplane mode.
 
 ## Development
@@ -43,22 +37,19 @@ Removes patient identifiers from photos of clinical material (paper notes, Optos
 ```bash
 npm install
 npm run dev          # local dev server
-npm test             # unit tests (detection rules, geometry, templates)
-npm run test:e2e     # Playwright: full flow on synthetic images, network + storage checks, offline mode
+npm test             # unit tests (ZIP writer, geometry, boxes, templates)
+npm run test:e2e     # Playwright: batch flow on synthetic images, network + storage checks, offline mode
 npm run build        # production build in dist/
 ```
 
-The OCR engine and English language data are copied from `node_modules` into `public/vendor/` by `scripts/vendor.mjs`, so they are served from the app's own origin. Test images in `tests/e2e/fixtures.ts` are drawn at test time with a fictional patient. Never commit real patient images.
-
-### Layout
+Test images are drawn at test time with a fictional patient (`tests/e2e/fixtures.ts`). Never commit real patient images.
 
 | Path | Purpose |
 |---|---|
-| `src/state/session.ts` | In-memory session and `wipe()` |
-| `src/geometry/` | Corner detection, homography, perspective warp |
-| `src/detect/patterns.ts` | Australian identifier rules (Medicare, MRN/UR, DOB, phone, address, names) |
-| `src/detect/ocr.ts` | tesseract.js wrapper, loaded from local files only |
+| `src/state/session.ts` | In-memory session, image decoding cache, `wipe()` |
 | `src/presets/` | Default box positions and user templates (geometry only) |
-| `src/export/` | Flattened rendering, verification re-scan, copy/save/share |
-| `src/ui/screens/` | Start → Photos → Type → Straighten → Redact → Review |
+| `src/ui/Workspace.tsx` | Type chips, toolbar, filmstrip navigation, keyboard shortcuts |
+| `src/ui/RedactCanvas.tsx` | Box drawing, moving and resizing |
+| `src/export/` | Rendering with solid boxes, ZIP writer, save/share helpers |
+| `src/geometry/` | Perspective warp for the optional Straighten step |
 | `src/sw.ts` | Offline cache of app files, plus the Android share target (photos are never cached) |

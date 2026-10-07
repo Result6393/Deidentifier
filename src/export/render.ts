@@ -1,5 +1,4 @@
 import type { Box } from '../types';
-import { rectToPx } from '../editor/boxes';
 
 export const REDACTION_FILL = '#000000';
 
@@ -18,25 +17,23 @@ function drawStamp(ctx: CanvasRenderingContext2D, text: string, x: number, y: nu
 }
 
 /**
- * Produces the export image: a brand-new canvas holding the straightened
- * pixels with every accepted box painted solid. Nothing else (no layers, no
- * metadata, no original file name) is carried over.
+ * Produces the export image: a brand-new canvas holding the photo's pixels
+ * with every box painted solid. Nothing else (no layers, no metadata, no
+ * original file name) is carried over.
  */
-export function renderRedacted(flat: HTMLCanvasElement, boxes: Box[], maxEdge: number | null): HTMLCanvasElement {
-  const scale = maxEdge ? Math.min(1, maxEdge / Math.max(flat.width, flat.height)) : 1;
+export function renderRedacted(src: HTMLCanvasElement, boxes: Box[], maxEdge: number | null): HTMLCanvasElement {
+  const scale = maxEdge ? Math.min(1, maxEdge / Math.max(src.width, src.height)) : 1;
   const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.round(flat.width * scale));
-  c.height = Math.max(1, Math.round(flat.height * scale));
+  c.width = Math.max(1, Math.round(src.width * scale));
+  c.height = Math.max(1, Math.round(src.height * scale));
   const ctx = c.getContext('2d')!;
-  ctx.drawImage(flat, 0, 0, c.width, c.height);
+  ctx.drawImage(src, 0, 0, c.width, c.height);
   for (const b of boxes) {
-    if (b.status !== 'accepted') continue;
-    const p = rectToPx(b, c.width, c.height);
     // Round outwards so anti-aliasing can't leave a faint edge of text.
-    const x = Math.floor(p.x0);
-    const y = Math.floor(p.y0);
-    const w = Math.ceil(p.x1) - x;
-    const h = Math.ceil(p.y1) - y;
+    const x = Math.floor(b.x * c.width);
+    const y = Math.floor(b.y * c.height);
+    const w = Math.ceil((b.x + b.w) * c.width) - x;
+    const h = Math.ceil((b.y + b.h) * c.height) - y;
     ctx.fillStyle = REDACTION_FILL;
     ctx.fillRect(x, y, w, h);
     if (b.stamp) drawStamp(ctx, b.stamp, x, y, w, h);
