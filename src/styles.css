@@ -93,7 +93,9 @@ select { width: auto; }
 .handle.ne { right: -11px; top: -11px; cursor: nesw-resize; }
 .handle.sw { left: -11px; bottom: -11px; cursor: nesw-resize; }
 .handle.se { right: -11px; bottom: -11px; cursor: nwse-resize; }
-.box-panel { border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--bg); }
+.box-panel { border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--bg); height: 46px; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; align-items: center; }
+.box-panel > * { flex: none; }
+.nowrap { white-space: nowrap; }
 
 /* Camera */
 .camera { display: flex; flex-direction: column; gap: 12px; }

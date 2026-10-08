@@ -265,34 +265,39 @@ export function Workspace({ onImport, onCamera }: { onImport: () => void; onCame
           </button>
         </div>
 
-        {box && (
-          <div class="box-panel row wrap small">
-            <span>Print on box:</span>
-            {STAMPS.map((s) => (
-              <button key={s} class={`chip ${box.stamp === s ? 'on' : ''}`} onClick={() => setStamp(box, s)}>
-                {s}
+        {/* Always rendered at a fixed height so selecting a box never shifts the photo. */}
+        <div class="box-panel row small" data-testid="box-panel">
+          {box ? (
+            <>
+              <span class="nowrap">Print on box:</span>
+              {STAMPS.map((s) => (
+                <button key={s} class={`chip ${box.stamp === s ? 'on' : ''}`} onClick={() => setStamp(box, s)}>
+                  {s}
+                </button>
+              ))}
+              <button
+                class="chip"
+                onClick={() => {
+                  const s = prompt('Text to print on this box (no identifiers):', box.stamp ?? '');
+                  if (s !== null) setStamp(box, s.trim().slice(0, 24) || undefined);
+                }}
+              >
+                Custom…
               </button>
-            ))}
-            <button
-              class="chip"
-              onClick={() => {
-                const s = prompt('Text to print on this box (no identifiers):', box.stamp ?? '');
-                if (s !== null) setStamp(box, s.trim().slice(0, 24) || undefined);
-              }}
-            >
-              Custom…
-            </button>
-            {box.stamp && (
-              <button class="chip" onClick={() => setStamp(box, undefined)}>
-                None
+              {box.stamp && (
+                <button class="chip" onClick={() => setStamp(box, undefined)}>
+                  None
+                </button>
+              )}
+              <span class="spacer" />
+              <button class="btn danger small" onClick={() => removeBox(box.id)}>
+                Delete box
               </button>
-            )}
-            <span class="spacer" />
-            <button class="btn danger small" onClick={() => removeBox(box.id)}>
-              Delete box
-            </button>
-          </div>
-        )}
+            </>
+          ) : (
+            <span class="muted">Tap a box to move, resize, label or delete it.</span>
+          )}
+        </div>
 
         <RedactCanvas img={img} canvas={canvas} selected={selected} setSelected={setSelected} drawMode={drawMode} setDrawMode={setDrawMode} solid={solid} zoom={ZOOMS[zoom]} onEdit={edit} onSwipe={go} />
 

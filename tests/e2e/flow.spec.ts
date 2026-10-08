@@ -204,6 +204,44 @@ test('copy puts the redacted image on the clipboard', async ({ page, context }) 
   expect(clip.width).toBeLessThanOrEqual(2000);
 });
 
+test('selecting or deselecting a box never moves the photo', async ({ page }) => {
+  await page.getByTestId('file-input').setInputFiles(fixtures.notes);
+  await type(page, 'notes');
+  const surface = page.getByTestId('redact-surface');
+  const top = async () => (await surface.boundingBox())!.y;
+  const panelH = async () => (await page.getByTestId('box-panel').boundingBox())!.height;
+  const y0 = await top();
+  const h0 = await panelH();
+  await page.locator('.rbox').first().click({ position: { x: 15, y: 15 } });
+  await expect(page.getByRole('button', { name: 'Delete box' })).toBeVisible();
+  expect(await top()).toBe(y0);
+  expect(await panelH()).toBe(h0);
+  await page.getByRole('button', { name: 'RE', exact: true }).click();
+  expect(await top()).toBe(y0);
+  await page.getByRole('button', { name: 'Delete box' }).waitFor();
+  // Tap empty photo to deselect.
+  const s = (await surface.boundingBox())!;
+  await page.mouse.click(s.x + 20, s.y + 40);
+  await expect(page.getByRole('button', { name: 'Delete box' })).toHaveCount(0);
+  expect(await top()).toBe(y0);
+  expect(await panelH()).toBe(h0);
+});
+
+test.describe('phone width', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  test('box options stay on one row and the photo does not move', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles(fixtures.notes);
+    await type(page, 'notes');
+    const surface = page.getByTestId('redact-surface');
+    const y0 = (await surface.boundingBox())!.y;
+    const h0 = (await page.getByTestId('box-panel').boundingBox())!.height;
+    await page.locator('.rbox').first().tap({ position: { x: 15, y: 15 } });
+    await expect(page.getByRole('button', { name: 'Delete box' })).toBeAttached();
+    expect((await surface.boundingBox())!.y).toBe(y0);
+    expect((await page.getByTestId('box-panel').boundingBox())!.height).toBe(h0);
+  });
+});
+
 test('straighten: manual corners warp the photo and reset its boxes', async ({ page }) => {
   await page.getByTestId('file-input').setInputFiles(fixtures.notes);
   await type(page, 'notes');
