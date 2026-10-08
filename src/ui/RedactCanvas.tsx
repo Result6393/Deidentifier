@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { clampRect, makeBox } from '../editor/boxes';
 import { zeroCanvas, type WorkImage } from '../state/session';
@@ -22,9 +23,15 @@ interface Props {
   onEdit: () => void;
   /** Called with +1 (next) or -1 (previous) after a horizontal swipe on the photo. */
   onSwipe: (delta: number) => void;
+  /** Floating controls for the selected box, drawn over the frame so they never move the photo. */
+  boxBar?: ComponentChildren;
+  /** Where the floating bar sits: away from the selected box. */
+  boxBarAt?: 'top' | 'bottom';
+  /** Centered message over the photo (e.g. before a type is chosen). */
+  hint?: string;
 }
 
-export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, setDrawMode, solid, zoom, onEdit, onSwipe }: Props) {
+export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, setDrawMode, solid, zoom, onEdit, onSwipe, boxBar, boxBarAt = 'bottom', hint }: Props) {
   const displayRef = useRef<HTMLCanvasElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -124,6 +131,7 @@ export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, set
   };
 
   return (
+    <div class="frame">
     <div class="viewport">
       <div
         ref={surfaceRef}
@@ -150,6 +158,9 @@ export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, set
           </div>
         ))}
       </div>
+    </div>
+      {hint && <div class="photo-hint">{hint}</div>}
+      {boxBar && <div class={`box-bar ${boxBarAt}`}>{boxBar}</div>}
     </div>
   );
 }

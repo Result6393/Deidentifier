@@ -22,6 +22,11 @@ function trackRequests(page: Page) {
 }
 
 const importThree = (page: Page) => page.getByTestId('file-input').setInputFiles([fixtures.notes, fixtures.cirrus, fixtures.optos2]);
+/** Opens the photo "⋯" menu and clicks one of its items. */
+async function tool(page: Page, name: string | RegExp) {
+  await page.getByTestId('photo-menu').click();
+  await page.getByRole('button', { name }).click();
+}
 const type = (page: Page, t: string) => page.locator(`[data-type="${t}"]`).click();
 
 /** Imports the three fixtures and gives each its type, marking each done. */
@@ -163,9 +168,11 @@ test('layouts: save a named layout, make it the default, new photos start with i
   await page.mouse.up();
   await expect(page.locator('.rbox')).toHaveCount(2);
   page.once('dialog', (d) => d.accept('Clinic A'));
+  await page.getByTestId('photo-menu').click();
   await page.getByTestId('save-preset').click();
   await expect(page.getByTestId('layout-select')).toContainText('Clinic A');
   page.once('dialog', (d) => d.accept());
+  await page.getByTestId('photo-menu').click();
   await page.getByTestId('make-default').click();
   await expect(page.getByTestId('layout-select')).toContainText('Clinic A ★');
 
@@ -209,13 +216,10 @@ test('selecting or deselecting a box never moves the photo', async ({ page }) =>
   await type(page, 'notes');
   const surface = page.getByTestId('redact-surface');
   const top = async () => (await surface.boundingBox())!.y;
-  const panelH = async () => (await page.getByTestId('box-panel').boundingBox())!.height;
   const y0 = await top();
-  const h0 = await panelH();
   await page.locator('.rbox').first().click({ position: { x: 15, y: 15 } });
   await expect(page.getByRole('button', { name: 'Delete box' })).toBeVisible();
   expect(await top()).toBe(y0);
-  expect(await panelH()).toBe(h0);
   await page.getByRole('button', { name: 'RE', exact: true }).click();
   expect(await top()).toBe(y0);
   await page.getByRole('button', { name: 'Delete box' }).waitFor();
@@ -224,28 +228,75 @@ test('selecting or deselecting a box never moves the photo', async ({ page }) =>
   await page.mouse.click(s.x + 20, s.y + 40);
   await expect(page.getByRole('button', { name: 'Delete box' })).toHaveCount(0);
   expect(await top()).toBe(y0);
-  expect(await panelH()).toBe(h0);
 });
 
 test.describe('phone width', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
-  test('box options stay on one row and the photo does not move', async ({ page }) => {
+  test('box options float over the photo and the photo does not move', async ({ page }) => {
     await page.getByTestId('file-input').setInputFiles(fixtures.notes);
     await type(page, 'notes');
     const surface = page.getByTestId('redact-surface');
     const y0 = (await surface.boundingBox())!.y;
-    const h0 = (await page.getByTestId('box-panel').boundingBox())!.height;
     await page.locator('.rbox').first().tap({ position: { x: 15, y: 15 } });
     await expect(page.getByRole('button', { name: 'Delete box' })).toBeAttached();
     expect((await surface.boundingBox())!.y).toBe(y0);
-    expect((await page.getByTestId('box-panel').boundingBox())!.height).toBe(h0);
+  });
+});
+
+test.describe('compact controls', () => {
+  const cases = [
+    { name: 'laptop 1280×720', viewport: { width: 1280, height: 720 }, maxTop: 160 },
+    { name: 'phone 390×844', viewport: { width: 390, height: 844 }, maxTop: 160 },
+  ];
+  for (const c of cases) {
+    test(`${c.name}: photo starts high, bars are single rows, frequent actions need no menu`, async ({ page }) => {
+      await page.setViewportSize(c.viewport);
+      await page.getByTestId('file-input').setInputFiles([fixtures.notes, fixtures.cirrus]);
+      await expect(page.locator('.film')).toHaveCount(2);
+      await type(page, 'notes');
+      const top = (await page.getByTestId('redact-surface').boundingBox())!.y;
+      expect(top).toBeLessThanOrEqual(c.maxTop);
+      // Each bar fits on one row.
+      for (const sel of ['.topbar', '.types', '.toolbar']) {
+        const h = (await page.locator(sel).first().boundingBox())!.height;
+        expect(h, `${sel} height`).toBeLessThanOrEqual(56);
+      }
+      // No horizontal page scroll.
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      // Used on every photo: all visible without opening a menu.
+      for (const id of ['prev', 'next', 'done', 'draw', 'export-menu']) await expect(page.getByTestId(id)).toBeVisible();
+      await expect(page.getByTestId('import')).toBeVisible();
+      for (const t of ['notes', 'optos1', 'optos2', 'cirrus', 'generic']) await expect(page.locator(`[data-type="${t}"]`)).toBeVisible();
+      // The whole photo fits above the filmstrip.
+      const surface = (await page.getByTestId('redact-surface').boundingBox())!;
+      const film = (await page.locator('.filmstrip').boundingBox())!;
+      expect(surface.y + surface.height).toBeLessThanOrEqual(film.y + 1);
+    });
+  }
+
+  test('the ⋯ menus hold the rare actions and close after use', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles(fixtures.notes);
+    await type(page, 'notes');
+    await page.getByTestId('photo-menu').click();
+    for (const name of ['Rotate', 'Straighten…', 'Solid preview', 'Reset boxes', 'Save boxes as new layout…']) {
+      await expect(page.getByRole('button', { name: new RegExp(name) })).toBeVisible();
+    }
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Rotate' })).toHaveCount(0);
+    await page.getByTestId('photo-menu').click();
+    await page.getByRole('button', { name: /Solid preview/ }).click();
+    await expect(page.getByRole('button', { name: 'Rotate' })).toHaveCount(0);
+    await expect(page.locator('.rbox.solid')).toHaveCount(1);
+    await page.getByTestId('app-menu').click();
+    await expect(page.getByText(/On-device only/)).toBeVisible();
+    await expect(page.getByText(/^Version \d+\.\d+\.\d+$/)).toBeVisible();
   });
 });
 
 test('straighten: manual corners warp the photo and reset its boxes', async ({ page }) => {
   await page.getByTestId('file-input').setInputFiles(fixtures.notes);
   await type(page, 'notes');
-  await page.getByRole('button', { name: 'Straighten' }).click();
+  await tool(page, 'Straighten…');
   await page.getByTestId('flatten').click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator('.rbox')).toHaveCount(1);
@@ -280,6 +331,7 @@ test('exporting warns about images with no boxes or not marked done', async ({ p
 test('ending the session leaves no patient data in browser storage', async ({ page }) => {
   await prepareBatch(page);
   page.once('dialog', (d) => d.accept());
+  await page.getByTestId('app-menu').click();
   await page.getByRole('button', { name: 'End session' }).click();
   await expect(page.getByText('Session ended')).toBeVisible();
   await expect(page.locator('.film')).toHaveCount(0);
@@ -312,7 +364,10 @@ test('a dozen photos open quickly and stay editable', async ({ page }) => {
 test('works fully offline once installed', async ({ page, context }) => {
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload();
-  await expect(page.locator('.badge')).toContainText('offline ready');
+  await expect(page.getByTestId('app-menu').locator('.dot')).toBeVisible();
+  await page.getByTestId('app-menu').click();
+  await expect(page.getByText(/offline ready/)).toBeVisible();
+  await page.keyboard.press('Escape');
   await context.setOffline(true);
   await page.reload();
   await prepareBatch(page);

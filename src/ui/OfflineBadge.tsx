@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 
-/** Shows whether the app is installed for offline use and whether the device is online. */
-export function OfflineBadge() {
+/** Whether the app is installed for offline use, and whether the device is online. */
+export function useOfflineStatus() {
   const [ready, setReady] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   useEffect(() => {
@@ -14,10 +14,8 @@ export function OfflineBadge() {
       window.removeEventListener('offline', update);
     };
   }, []);
-  return (
-    <div class="badge" title="Photos are processed on this device and never uploaded.">
-      On-device{ready ? ' · offline ready' : ''}
-      {!online && ' · no network'}
-    </div>
-  );
+  return { ready, online };
 }
+
+export const offlineText = (s: { ready: boolean; online: boolean }) =>
+  `On-device only${s.ready ? ' · offline ready' : ''}${s.online ? '' : ' · no network'}`;

@@ -55,7 +55,7 @@ export function ExportMenu() {
   return (
     <div class="menu">
       <button class="btn primary" onClick={() => setOpen(!open)} aria-expanded={open} data-testid="export-menu">
-        Export ({total}) ▾
+        Export<span class="hide-sm"> ({total})</span> ▾
       </button>
       {open && (
         <div class="menu-panel stack">

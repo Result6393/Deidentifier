@@ -1,7 +1,8 @@
 import { useEffect, useReducer, useRef, useState } from 'preact/hooks';
 import { addFiles, session, subscribe, wipe } from './state/session';
 import { collectSharedFiles } from './capture/shareTarget';
-import { OfflineBadge } from './ui/OfflineBadge';
+import { offlineText, useOfflineStatus } from './ui/OfflineBadge';
+import { OverflowMenu } from './ui/OverflowMenu';
 import { CameraScreen } from './ui/Camera';
 import { ExportMenu } from './ui/ExportMenu';
 import { Workspace } from './ui/Workspace';
@@ -16,6 +17,7 @@ export function App() {
   const [dragOver, setDragOver] = useState(false);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   const fileRef = useRef<HTMLInputElement>(null);
+  const offline = useOfflineStatus();
 
   useEffect(() => subscribe(() => rerender(0)), []);
 
@@ -90,10 +92,10 @@ export function App() {
         <div class="brand">
           Deidentifier <span class="version">v{__APP_VERSION__}</span>
         </div>
-        <OfflineBadge />
+        <span class="spacer" />
         {!camera && (
           <>
-            <button class="btn" onClick={() => fileRef.current?.click()}>
+            <button class="btn" onClick={() => fileRef.current?.click()} data-testid="import">
               Import
             </button>
             <button class="btn" onClick={() => setCamera(true)}>
@@ -102,11 +104,27 @@ export function App() {
           </>
         )}
         {hasImages && !camera && <ExportMenu />}
-        {hasImages && (
-          <button class="btn danger small" onClick={endSession}>
-            End session
-          </button>
-        )}
+        <OverflowMenu title="More" testid="app-menu" dot={offline.ready}>
+          {(close) => (
+            <>
+              <p class="menu-note" title="Photos are processed on this device and never uploaded.">
+                {offlineText(offline)}
+              </p>
+              <p class="menu-note">Version {__APP_VERSION__}</p>
+              {hasImages && (
+                <button
+                  class="menu-item danger"
+                  onClick={() => {
+                    close();
+                    endSession();
+                  }}
+                >
+                  End session
+                </button>
+              )}
+            </>
+          )}
+        </OverflowMenu>
         <input
           ref={fileRef}
           type="file"

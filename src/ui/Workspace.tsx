@@ -19,10 +19,11 @@ import type { Box, DocType } from '../types';
 import { renderOne } from '../export/batch';
 import { canCopyImage, copyImage } from '../export/output';
 import { Filmstrip } from './Filmstrip';
+import { OverflowMenu } from './OverflowMenu';
 import { RedactCanvas } from './RedactCanvas';
 import { StraightenModal } from './StraightenModal';
 
-const ZOOMS = [1, 1.5, 2, 3, 4];
+const ZOOMS = [1, 2, 3];
 const STAMPS = ['RE', 'LE', 'OD', 'OS', 'OU'];
 
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
@@ -181,22 +182,53 @@ export function Workspace({ onImport, onCamera }: { onImport: () => void; onCame
     edit();
   };
 
+  const cycleZoom = () => setZoom((zoom + 1) % 3);
+
+  // Controls for the selected box float over the photo, on the side away from the box.
+  const boxBar = box && (
+    <>
+      <span class="nowrap">Print on box:</span>
+      {STAMPS.map((s) => (
+        <button key={s} class={`chip ${box.stamp === s ? 'on' : ''}`} onClick={() => setStamp(box, s)}>
+          {s}
+        </button>
+      ))}
+      <button
+        class="chip"
+        onClick={() => {
+          const s = prompt('Text to print on this box (no identifiers):', box.stamp ?? '');
+          if (s !== null) setStamp(box, s.trim().slice(0, 24) || undefined);
+        }}
+      >
+        Custom…
+      </button>
+      {box.stamp && (
+        <button class="chip" onClick={() => setStamp(box, undefined)}>
+          None
+        </button>
+      )}
+      <span class="spacer" />
+      <button class="btn danger small" onClick={() => removeBox(box.id)}>
+        Delete box
+      </button>
+    </>
+  );
+
   return (
-    <div class="stack">
-      <div class="card stack">
-        <div class="row wrap types" role="group" aria-label="Image type">
+    <div class="stack tight">
+      <div class="card stack tight">
+        <div class="types" role="group" aria-label="Image type">
           {DOC_TYPES.map((t) => (
-            <button key={t.type} class={`chip big ${img.type === t.type ? 'on' : ''}`} onClick={() => choose(t.type)} data-type={t.type} title={t.description}>
+            <button key={t.type} class={`chip type ${img.type === t.type ? 'on' : ''}`} onClick={() => choose(t.type)} data-type={t.type} title={t.description}>
               {t.short}
             </button>
           ))}
-          {!img.type && <span class="muted small">Choose a type to place the boxes</span>}
         </div>
 
-        {img.type && (
-          <div class="row wrap small layout" data-testid="layout-row">
-            <label>
-              Layout{' '}
+        {img.type && presets.length > 0 && (
+          <div class="row small layout" data-testid="layout-row">
+            <label class="row">
+              Layout
               <select value={img.presetId ?? ''} onChange={(e) => pickLayout(e.currentTarget.value)} data-testid="layout-select">
                 <option value="">Built-in{defaultId === null ? ' ★' : ''}</option>
                 {presets.map((p) => (
@@ -207,114 +239,106 @@ export function Workspace({ onImport, onCamera }: { onImport: () => void; onCame
                 ))}
               </select>
             </label>
-            <button class="link" onClick={saveNewPreset} data-testid="save-preset">
-              Save boxes as new layout…
-            </button>
-            {active && (
-              <button class="link" onClick={updatePreset}>
-                Update “{active.name}”
-              </button>
-            )}
-            {(img.presetId ?? null) !== defaultId && (
-              <button class="link" onClick={makeDefault} data-testid="make-default">
-                Make default
-              </button>
-            )}
-            {active && (
-              <button class="link danger" onClick={removePreset}>
-                Delete layout
-              </button>
-            )}
           </div>
         )}
 
-        <div class="toolbar row wrap">
-          <button class="btn" onClick={() => go(-1)} disabled={index === 0} aria-label="Previous image" data-testid="prev">
-            ← Prev
+        <div class="toolbar row">
+          <button class="btn icon" onClick={() => go(-1)} disabled={index === 0} aria-label="Previous image" data-testid="prev">
+            ‹
           </button>
           <span class="small count" data-testid="count">
             {index + 1} / {count}
           </span>
-          <button class="btn" onClick={() => go(1)} disabled={index === count - 1} aria-label="Next image" data-testid="next">
-            Next →
+          <button class="btn icon" onClick={() => go(1)} disabled={index === count - 1} aria-label="Next image" data-testid="next">
+            ›
           </button>
           <button class={`btn ${img.done ? 'primary' : ''}`} onClick={() => ((img.done = !img.done), changed())} aria-pressed={img.done} data-testid="done" title="Enter">
-            {img.done ? '✓ Done' : 'Mark done'}
+            {img.done ? '✓ Done' : 'Done'}
+          </button>
+          <span class="spacer" />
+          <button class={`btn ${drawMode ? 'primary' : ''}`} onClick={() => setDrawMode(!drawMode)} data-testid="draw">
+            {drawMode ? 'Drag…' : '+ Box'}
           </button>
           {canCopyImage() && (
             <button class="btn" onClick={copyCurrent} data-testid="copy" title="Copy this image, with boxes applied, to the clipboard">
               Copy
             </button>
           )}
-          <span class="spacer" />
-          <button class={`btn ${drawMode ? 'primary' : ''}`} onClick={() => setDrawMode(!drawMode)} data-testid="draw">
-            {drawMode ? 'Drag on image…' : '+ Box'}
+          <button class="btn only-wide" onClick={cycleZoom} aria-label="Zoom" title="Change zoom">
+            {ZOOMS[zoom]}×
           </button>
-          <button class="btn" onClick={() => rotate(img)} aria-label="Rotate">
-            ↻
-          </button>
-          <button class="btn" onClick={() => setStraighten(true)}>
-            Straighten
-          </button>
-          <button class="btn" onClick={() => setZoom(Math.max(0, zoom - 1))} disabled={zoom === 0} aria-label="Zoom out">
-            −
-          </button>
-          <span class="small">{ZOOMS[zoom]}×</span>
-          <button class="btn" onClick={() => setZoom(Math.min(ZOOMS.length - 1, zoom + 1))} disabled={zoom === ZOOMS.length - 1} aria-label="Zoom in">
-            +
-          </button>
+          <OverflowMenu title="Photo tools" testid="photo-menu">
+            {(close) => {
+              const run = (fn: () => void) => () => {
+                close();
+                fn();
+              };
+              return (
+                <>
+                  <button class="menu-item only-narrow" onClick={run(cycleZoom)}>
+                    Zoom: {ZOOMS[zoom]}× (tap to change)
+                  </button>
+                  <button class="menu-item" onClick={run(() => rotate(img))}>
+                    Rotate ↻
+                  </button>
+                  <button class="menu-item" onClick={run(() => setStraighten(true))}>
+                    Straighten…
+                  </button>
+                  <button class="menu-item" onClick={run(() => setSolid(!solid))} aria-pressed={solid}>
+                    {solid ? '✓ ' : ''}Solid preview
+                  </button>
+                  <button class="menu-item" onClick={run(reset)} disabled={!img.type}>
+                    Reset boxes
+                  </button>
+                  <p class="menu-note">Layouts for {typeTitle || 'this type'}</p>
+                  <button class="menu-item" onClick={run(saveNewPreset)} disabled={!img.type} data-testid="save-preset">
+                    Save boxes as new layout…
+                  </button>
+                  {active && (
+                    <button class="menu-item" onClick={run(updatePreset)}>
+                      Update “{active.name}”
+                    </button>
+                  )}
+                  {img.type && (img.presetId ?? null) !== defaultId && (
+                    <button class="menu-item" onClick={run(makeDefault)} data-testid="make-default">
+                      Make default
+                    </button>
+                  )}
+                  {active && (
+                    <button class="menu-item danger" onClick={run(removePreset)}>
+                      Delete layout
+                    </button>
+                  )}
+                </>
+              );
+            }}
+          </OverflowMenu>
         </div>
 
-        {/* Always rendered at a fixed height so selecting a box never shifts the photo. */}
-        <div class="box-panel row small" data-testid="box-panel">
-          {box ? (
-            <>
-              <span class="nowrap">Print on box:</span>
-              {STAMPS.map((s) => (
-                <button key={s} class={`chip ${box.stamp === s ? 'on' : ''}`} onClick={() => setStamp(box, s)}>
-                  {s}
-                </button>
-              ))}
-              <button
-                class="chip"
-                onClick={() => {
-                  const s = prompt('Text to print on this box (no identifiers):', box.stamp ?? '');
-                  if (s !== null) setStamp(box, s.trim().slice(0, 24) || undefined);
-                }}
-              >
-                Custom…
-              </button>
-              {box.stamp && (
-                <button class="chip" onClick={() => setStamp(box, undefined)}>
-                  None
-                </button>
-              )}
-              <span class="spacer" />
-              <button class="btn danger small" onClick={() => removeBox(box.id)}>
-                Delete box
-              </button>
-            </>
-          ) : (
-            <span class="muted">Tap a box to move, resize, label or delete it.</span>
-          )}
-        </div>
-
-        <RedactCanvas img={img} canvas={canvas} selected={selected} setSelected={setSelected} drawMode={drawMode} setDrawMode={setDrawMode} solid={solid} zoom={ZOOMS[zoom]} onEdit={edit} onSwipe={go} />
-
-        <div class="row wrap small">
-          <label class="check">
-            <input type="checkbox" checked={solid} onChange={(e) => setSolid(e.currentTarget.checked)} /> Solid preview
-          </label>
-          <span class="spacer" />
-          <button class="link" onClick={reset} disabled={!img.type}>
-            Reset boxes
-          </button>
-        </div>
-        {message && <p class="small" role="status">{message}</p>}
-        <p class="muted small">Dark boxes are covered with solid black on export. Check every image yourself, including handwriting, before exporting.</p>
+        <RedactCanvas
+          img={img}
+          canvas={canvas}
+          selected={selected}
+          setSelected={setSelected}
+          drawMode={drawMode}
+          setDrawMode={setDrawMode}
+          solid={solid}
+          zoom={ZOOMS[zoom]}
+          onEdit={edit}
+          onSwipe={go}
+          boxBar={boxBar}
+          boxBarAt={box && box.y + box.h / 2 > 0.5 && zoom === 0 ? 'top' : 'bottom'}
+          hint={img.type ? undefined : 'Choose a type above to place the boxes'}
+        />
+        {message && (
+          <p class="small" role="status">
+            {message}
+          </p>
+        )}
       </div>
 
       <Filmstrip />
+      <p class="muted small foot">Dark boxes become solid black on export. Check every photo yourself, including handwriting.</p>
       {straighten && <StraightenModal img={img as WorkImage} onClose={() => setStraighten(false)} />}
     </div>
   );
