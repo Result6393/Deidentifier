@@ -5,6 +5,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeFixtures } from './fixtures';
 
+const APP_VERSION = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version;
+
+/** The version label must be fully visible: not clipped by its container or the screen. */
+async function expectVersionVisible(page: Page) {
+  const v = page.getByTestId('version');
+  await expect(v).toHaveText(`v${APP_VERSION}`);
+  const clipped = await v.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const parent = el.parentElement!.getBoundingClientRect();
+    return { clippedText: el.scrollWidth > el.clientWidth, outside: r.left < 0 || r.right > window.innerWidth, outOfParent: r.right > parent.right + 1 };
+  });
+  expect(clipped).toEqual({ clippedText: false, outside: false, outOfParent: false });
+  const name = await page.locator('.brand-name').evaluate((el) => el.scrollWidth > el.clientWidth);
+  expect(name, 'app name is not cut off').toBe(false);
+}
+
 let fixtures: Awaited<ReturnType<typeof makeFixtures>>;
 test.beforeAll(async ({ browser }) => {
   fixtures = await makeFixtures(browser);
@@ -260,6 +276,7 @@ test.describe('compact controls', () => {
       await type(page, 'notes');
       const top = (await page.getByTestId('redact-surface').boundingBox())!.y;
       expect(top).toBeLessThanOrEqual(c.maxTop);
+      await expectVersionVisible(page);
       // Each bar fits on one row.
       for (const sel of ['.topbar', '.types', '.toolbar']) {
         const h = (await page.locator(sel).first().boundingBox())!.height;
@@ -277,6 +294,15 @@ test.describe('compact controls', () => {
       expect(surface.y + surface.height).toBeLessThanOrEqual(film.y + 1);
     });
   }
+
+  test('version is fully visible with no photos loaded, at several phone widths', async ({ page }) => {
+    for (const width of [320, 360, 390, 411, 430]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.reload();
+      await expect(page.getByTestId('import')).toBeVisible();
+      await expectVersionVisible(page);
+    }
+  });
 
   test('the ⋯ menus hold the rare actions and close after use', async ({ page }) => {
     await page.getByTestId('file-input').setInputFiles(fixtures.notes);

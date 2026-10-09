@@ -90,7 +90,8 @@ export function App() {
     <div class="app">
       <header class="topbar">
         <div class="brand">
-          Deidentifier <span class="version">v{__APP_VERSION__}</span>
+          <span class="brand-name">Deidentifier</span>
+          <span class="version" data-testid="version">v{__APP_VERSION__}</span>
         </div>
         <span class="spacer" />
         {!camera && (
