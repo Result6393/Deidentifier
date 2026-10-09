@@ -188,3 +188,22 @@ select { width: auto; }
 @media (max-width: 400px) {
   .version { display: none; }
 }
+
+/* Buttons never wrap their label, whatever font the device uses */
+.btn, .chip { white-space: nowrap; }
+.brand { flex: 1 1 0; }
+
+/* Small phones: tighter controls; the toolbar scrolls inside itself rather than widening the page */
+@media (max-width: 600px) {
+  .toolbar { overflow-x: auto; scrollbar-width: none; }
+  .toolbar::-webkit-scrollbar { display: none; }
+  .toolbar > * { flex: none; }
+}
+@media (max-width: 400px) {
+  .toolbar { gap: 3px; }
+  .toolbar .btn { padding: 4px 6px; font-size: 0.85rem; }
+  .toolbar .btn.icon, .topbar .btn.icon { min-width: 30px; padding: 4px 6px; }
+  .toolbar .count { min-width: 2.6em; font-size: 0.8rem; text-align: center; }
+  .topbar { gap: 4px; }
+  .topbar .btn { padding: 4px 7px; font-size: 0.85rem; }
+}

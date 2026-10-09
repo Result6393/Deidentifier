@@ -245,12 +245,16 @@ test.describe('phone width', () => {
 
 test.describe('compact controls', () => {
   const cases = [
-    { name: 'laptop 1280×720', viewport: { width: 1280, height: 720 }, maxTop: 160 },
-    { name: 'phone 390×844', viewport: { width: 390, height: 844 }, maxTop: 160 },
+    { name: 'laptop 1280×720', viewport: { width: 1280, height: 720 }, maxTop: 160, font: null },
+    { name: 'phone 390×844', viewport: { width: 390, height: 844 }, maxTop: 160, font: null },
+    // A much wider system font must not make any bar wrap (this is what GitHub's runner uses).
+    { name: 'phone 390×844, wide font', viewport: { width: 390, height: 844 }, maxTop: 160, font: 'DejaVu Sans' },
+    { name: 'small phone 360×740, wide font', viewport: { width: 360, height: 740 }, maxTop: 160, font: 'DejaVu Sans' },
   ];
   for (const c of cases) {
     test(`${c.name}: photo starts high, bars are single rows, frequent actions need no menu`, async ({ page }) => {
       await page.setViewportSize(c.viewport);
+      if (c.font) await page.addStyleTag({ content: `html,body,button,select,input,textarea{font-family:'${c.font}' !important}` });
       await page.getByTestId('file-input').setInputFiles([fixtures.notes, fixtures.cirrus]);
       await expect(page.locator('.film')).toHaveCount(2);
       await type(page, 'notes');
