@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 
 interface Props {
   title: string;
@@ -17,7 +17,8 @@ export function OverflowMenu({ title, testid, dot, label, children }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  // Layout effect: Esc and outside-click work the instant the menu is on screen.
+  useLayoutEffect(() => {
     if (!open) return;
     const down = (e: PointerEvent) => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
