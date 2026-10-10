@@ -1,7 +1,7 @@
-import { useState } from 'preact/hooks';
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { problems, renderBatch } from '../export/batch';
 import { canSaveToFolder, canShareFiles, downloadAll, downloadBlob, exportName, shareFiles, writeToFolder, type Format, type NamedBlob } from '../export/output';
-import { overwriteOriginals } from '../export/overwrite';
+import { needsWrite, overwriteOriginals } from '../export/overwrite';
 import { folderLabel, freeName, listNames, pickFolder } from '../fs';
 import { makeZip } from '../export/zip';
 import { session } from '../state/session';
@@ -11,6 +11,29 @@ type Kind = 'zip' | 'folder' | 'files' | 'share';
 
 export function ExportMenu() {
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Close on Esc or a click elsewhere, but not while a confirmation dialog is answering something for us.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const dialogOpen = () => !!document.querySelector('[role="alertdialog"]');
+    const down = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!rootRef.current?.contains(t) && !(t as Element).closest?.('[role="alertdialog"]')) setOpen(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !dialogOpen()) {
+        setOpen(false);
+        e.stopPropagation();
+      }
+    };
+    document.addEventListener('pointerdown', down);
+    window.addEventListener('keydown', key, true);
+    return () => {
+      document.removeEventListener('pointerdown', down);
+      window.removeEventListener('keydown', key, true);
+    };
+  }, [open]);
   const [limit, setLimit] = useState(true);
   const [format, setFormat] = useState<Format>('image/jpeg');
   const [busy, setBusy] = useState<string | null>(null);
@@ -78,6 +101,7 @@ export function ExportMenu() {
   };
 
   const withSource = session.images.filter((i) => i.source).length;
+  const changedCount = session.images.filter(needsWrite).length;
 
   const runOverwrite = async () => {
     setMessage(null);
@@ -106,7 +130,7 @@ export function ExportMenu() {
   };
 
   return (
-    <div class="menu">
+    <div class="menu" ref={rootRef}>
       <button class="btn primary" onClick={() => setOpen(!open)} aria-expanded={open} data-testid="export-menu">
         Export<span class="hide-sm"> ({total})</span> ▾
       </button>
@@ -140,13 +164,14 @@ export function ExportMenu() {
           </button>
           {withSource > 0 && (
             <div class="stack replace-box">
-              <button class="btn danger" disabled={!!busy} onClick={runOverwrite} data-testid="export-overwrite">
-                Overwrite originals ({withSource}
-                {withSource < total ? ` of ${total}` : ''})…
+              <button class="btn danger" disabled={!!busy || changedCount === 0} onClick={runOverwrite} data-testid="export-overwrite">
+                Overwrite originals ({changedCount} changed)…
               </button>
               <p class="menu-note small">
-                Replaces the files you opened with their redacted versions, keeping each photo’s own format and size.
-                {withSource < total ? ' Photos not opened from a folder are left alone.' : ''}
+                {changedCount === 0
+                  ? 'Nothing to replace yet. Only photos opened from a folder that have new black boxes or edits are replaced.'
+                  : `Replaces only the ${changedCount === 1 ? 'photo' : `${changedCount} photos`} you've added black boxes to or edited, keeping each one's own format and size. The other ${withSource - changedCount} folder photo${withSource - changedCount === 1 ? '' : 's'} stay${withSource - changedCount === 1 ? 's' : ''} as they are.`}
+                {withSource < total ? ' Photos not opened from a folder are never touched.' : ''}
               </p>
             </div>
           )}

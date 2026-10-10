@@ -53,7 +53,6 @@ export function Workspace({ onImport, onCamera, onImportFolder }: { onImport: ()
   useEffect(() => {
     setCanvas(null);
     setSelected(null);
-    setDrawMode(false);
     if (!img) return;
     // Carry the last-used type forward so a run of similar photos needs no taps.
     if (!img.type && !img.noType && session.lastType) setType(img, session.lastType);
@@ -387,7 +386,7 @@ export function Workspace({ onImport, onCamera, onImportFolder }: { onImport: ()
           onSwipe={go}
           boxBar={boxBar}
           boxBarAt={box && box.y + box.h / 2 > 0.5 && zoom === 0 ? 'top' : 'bottom'}
-          hint={drawMode ? 'Drawing: drag for each box. Esc or + Box to stop.' : img.type ? undefined : 'Choose a type above to place the boxes'}
+          hint={drawMode ? 'Drawing: drag for each box, tap a box to select it. Esc or + Box to stop.' : img.type ? undefined : 'Choose a type above to place the boxes'}
           hintAt={drawMode ? 'top' : 'center'}
         />
         <div class="filebar" data-testid="filebar">

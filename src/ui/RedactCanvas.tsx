@@ -6,7 +6,7 @@ import type { Pt, Rect } from '../types';
 
 type Corner = 'nw' | 'ne' | 'sw' | 'se';
 type Drag =
-  | { kind: 'draw'; id: string; start: Pt }
+  | { kind: 'draw'; id: string; start: Pt; /** Screen position of the press, to tell a tap from a drag. */ at: Pt; /** The existing box under the press, if any. */ onBox?: string }
   | { kind: 'move'; id: string; start: Pt; orig: Rect }
   | { kind: 'resize'; id: string; start: Pt; orig: Rect; corner: Corner };
 
@@ -84,11 +84,12 @@ export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, sol
     const p = toNorm(e);
     const boxEl = target.closest<HTMLElement>('[data-box]');
     const corner = target.dataset.corner as Corner | undefined;
-    if (drawMode) {
+    // While drawing, a drag draws a new box, except from a resize handle (which still resizes).
+    if (drawMode && !(corner && boxEl)) {
       const b = makeBox({ x: p.x, y: p.y, w: 0, h: 0 });
       img.boxes.push(b);
       setSelected(b.id);
-      setDrag({ kind: 'draw', id: b.id, start: p });
+      setDrag({ kind: 'draw', id: b.id, start: p, at: { x: e.clientX, y: e.clientY }, onBox: boxEl?.dataset.box });
     } else if (boxEl) {
       const b = img.boxes.find((x) => x.id === boxEl.dataset.box)!;
       setSelected(b.id);
@@ -146,9 +147,11 @@ export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, sol
     if (!drag) return;
     if (drag.kind === 'draw') {
       const b = img.boxes.find((x) => x.id === drag.id);
-      if (b && (b.w < 0.004 || b.h < 0.004)) {
+      const tapped = Math.hypot(e.clientX - drag.at.x, e.clientY - drag.at.y) < 6;
+      if (b && (tapped || b.w < 0.004 || b.h < 0.004)) {
+        // Not a real drag: drop the sliver. A tap on an existing box selects that box instead.
         img.boxes = img.boxes.filter((x) => x !== b);
-        setSelected(null);
+        setSelected(tapped && drag.onBox ? drag.onBox : null);
       }
     }
     setDrag(null);

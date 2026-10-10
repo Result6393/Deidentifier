@@ -1,5 +1,5 @@
 import { ensureWrite, folderLabel, writeAtomic } from '../fs';
-import { changed, dropCanvas, shownPx, sigOf, type WorkImage } from '../state/session';
+import { changed, dropCanvas, isSaved, shownPx, sigOf, type WorkImage } from '../state/session';
 import { ask } from '../ui/ConfirmDialog';
 import { problems, renderOne } from './batch';
 import type { ImageType } from './output';
@@ -38,6 +38,12 @@ export async function writeOriginal(t: WorkImage): Promise<void> {
   t.savedSig = sigOf(t);
 }
 
+/**
+ * Whether replacing this photo's original would change anything: it came from a folder, has black
+ * boxes (or was rotated/straightened), and hasn't already been saved in exactly this state.
+ */
+export const needsWrite = (i: WorkImage) => !!i.source && !isSaved(i) && (i.boxes.length > 0 || !!i.modified);
+
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
@@ -47,7 +53,8 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * Resolves null if the user cancels before anything is written.
  */
 export async function overwriteOriginals(images: WorkImage[], onProgress: (msg: string) => void): Promise<OverwriteReport | null> {
-  const targets = images.filter((i) => i.source);
+  // Only photos that actually changed: the rest of the folder is not touched.
+  const targets = images.filter(needsWrite);
   if (!targets.length) return { replaced: 0, skipped: [], failed: [] };
   const label = (i: WorkImage) => i.source!.name;
   const n = targets.length;
@@ -55,19 +62,22 @@ export async function overwriteOriginals(images: WorkImage[], onProgress: (msg: 
 
   // 1. A firm, specific confirmation before anything is touched.
   const warnings = problems(targets);
-  const untouched = images.length - n;
+  const unchanged = images.filter((i) => i.source && !needsWrite(i)).length;
+  const notFromFolder = images.filter((i) => !i.source).length;
+  const plural = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
   const body = [
-    `This permanently replaces ${n} original photo${n > 1 ? 's' : ''} in ${folders.map(folderLabel).join(', ')} with the redacted version${n > 1 ? 's' : ''}. The unredacted originals will be gone and this app cannot get them back.`,
-    untouched ? `${untouched} other photo${untouched > 1 ? 's were' : ' was'} not imported from a folder and will not be changed.` : '',
+    `This permanently replaces ${plural(n, 'photo', 'photos')} in ${folders.map(folderLabel).join(', ')} with the redacted version${n > 1 ? 's' : ''}. The unredacted original${n > 1 ? 's' : ''} will be gone and this app cannot get ${n > 1 ? 'them' : 'it'} back.`,
+    unchanged ? `${plural(unchanged, 'other photo', 'other photos')} from the folder ${unchanged === 1 ? 'has' : 'have'} no new black boxes or edits and will not be touched.` : '',
+    notFromFolder ? `${plural(notFromFolder, 'photo', 'photos')} not opened from a folder will not be touched either.` : '',
     warnings.length ? `Check first:\n${warnings.join('\n')}` : '',
   ]
     .filter(Boolean)
     .join('\n\n');
   const choice = await ask({
-    title: `Replace ${n} original photo${n > 1 ? 's' : ''}?`,
+    title: `Replace ${plural(n, 'edited photo', 'edited photos')}?`,
     body,
     details: targets.map(label),
-    tickLabel: 'I understand the unredacted originals will be permanently replaced',
+    tickLabel: `I understand the unredacted original${n > 1 ? 's' : ''} will be permanently replaced`,
     choices: [
       { id: 'cancel', label: 'Cancel' },
       { id: 'go', label: `Replace ${n} original${n > 1 ? 's' : ''}`, kind: 'danger', needsTick: true },

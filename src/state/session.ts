@@ -34,6 +34,8 @@ export interface WorkImage {
   done: boolean;
   /** Set when imported from a folder: the file can be overwritten. */
   source?: SourceFile;
+  /** Rotated or straightened since it was opened, so the file would differ even with no boxes. */
+  modified?: boolean;
   /** The user deliberately removed the type, so don't carry the last-used type onto this photo. */
   noType?: boolean;
   /** File name shown in the file bar: the imported file's name, or "Camera photo N". */
@@ -243,6 +245,7 @@ export function applyPreset(img: WorkImage, presetId: string | null): void {
 /** Rotates the image a quarter turn clockwise, keeping any boxes in place on it. */
 export function rotate(img: WorkImage): void {
   img.rotation = (img.rotation + 1) % 4;
+  img.modified = true;
   img.aspect = 1 / img.aspect;
   img.boxes = img.boxes.map((b) => ({ ...b, ...rotateRect90(b) }));
   dropCanvas(img.id);
@@ -252,6 +255,7 @@ export function rotate(img: WorkImage): void {
 /** Replaces the photo (e.g. after straightening) and re-seeds the preset boxes. */
 export async function replaceBlob(img: WorkImage, blob: Blob, canvas: HTMLCanvasElement): Promise<void> {
   img.blob = blob;
+  img.modified = true;
   img.rotation = 0;
   img.pxW = canvas.width;
   img.pxH = canvas.height;

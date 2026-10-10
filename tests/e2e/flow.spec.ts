@@ -304,6 +304,21 @@ test.describe('compact controls', () => {
     }
   });
 
+  test('the Export menu closes on Esc and on a click elsewhere', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles(fixtures.notes);
+    await type(page, 'notes');
+    await page.getByTestId('export-menu').click();
+    await expect(page.getByTestId('export-zip')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('export-zip')).toHaveCount(0);
+    await page.getByTestId('export-menu').click();
+    await expect(page.getByTestId('export-zip')).toBeVisible();
+    await page.getByTestId('filebar').click({ position: { x: 5, y: 5 } }); // a click elsewhere closes it
+    await expect(page.getByTestId('export-zip')).toHaveCount(0);
+    await page.getByTestId('draw').click(); // and the controls it was covering work again
+    await expect(page.getByTestId('draw')).toHaveAttribute('aria-pressed', 'true');
+  });
+
   test('the ⋯ menus hold the rare actions and close after use', async ({ page }) => {
     await page.getByTestId('file-input').setInputFiles(fixtures.notes);
     await type(page, 'notes');
@@ -562,19 +577,60 @@ test.describe('files on disk', () => {
     expect(await disk(page)).toEqual(before);
   });
 
-  test('the confirmation names the files, warns about missing boxes, and defaults to Cancel', async ({ page }) => {
+  test('only photos with new boxes or edits are replaced, and the confirmation says so', async ({ page }) => {
     await seed(page, threeOnDisk());
+    const before = await disk(page);
     await importFolder(page);
     await expect(page.locator('.film')).toHaveCount(3);
+    // Nothing edited yet: nothing to replace.
     await page.getByTestId('export-menu').click();
+    await expect(page.getByTestId('export-overwrite')).toBeDisabled();
+    await expect(page.getByTestId('export-overwrite')).toContainText('0 changed');
+    // Add boxes to the first two photos only (the third is just looked at, or skipped).
+    await page.keyboard.press('Escape');
+    await type(page, 'notes');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowRight');
+    await type(page, 'cirrus');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowRight');
+    await type(page, 'optos2');
+    await type(page, 'optos2'); // deselect again: no boxes on the third
+    await expect(page.locator('.rbox')).toHaveCount(0);
+    await openExport(page);
+    await expect(page.getByTestId('export-overwrite')).toContainText('2 changed');
     await page.getByTestId('export-overwrite').click();
     const dialog = page.getByTestId('dialog');
-    await expect(dialog).toContainText('permanently replaces 3 original photos');
-    await expect(dialog).toContainText('cannot get them back'.replace('cannot', 'cannot'));
+    await expect(dialog).toContainText('Replace 2 edited photos?');
+    await expect(dialog).toContainText('permanently replaces 2 photos');
+    await expect(dialog).toContainText('1 other photo from the folder has no new black boxes or edits and will not be touched');
     await expect(dialog).toContainText('a-notes.jpg');
-    await expect(dialog).toContainText('c-optos.webp');
-    await expect(dialog).toContainText('No black boxes on images 1, 2, 3');
+    await expect(dialog).toContainText('b-cirrus.png');
+    await expect(dialog).not.toContainText('c-optos.webp');
     await expect(page.getByTestId('dialog-cancel')).toBeFocused();
+    await page.getByTestId('dialog-tick').check();
+    await page.getByTestId('dialog-go').click();
+    await expect(page.getByText('Replaced 2 originals.')).toBeVisible();
+    const after = await disk(page);
+    expect(after['c-optos.webp']).toEqual(before['c-optos.webp']); // untouched, byte for byte
+    expect(after['a-notes.jpg'].hash).not.toBe(before['a-notes.jpg'].hash);
+    expect(after['b-cirrus.png'].hash).not.toBe(before['b-cirrus.png'].hash);
+    // Already replaced and unchanged since: nothing left to do, until something changes again.
+    await openExport(page);
+    await expect(page.getByTestId('export-overwrite')).toBeDisabled();
+    await expect(page.getByTestId('export-overwrite')).toContainText('0 changed');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowLeft');
+    await page.getByTestId('draw').click();
+    const s = (await page.getByTestId('redact-surface').boundingBox())!;
+    await page.mouse.move(s.x + 30, s.y + 150);
+    await page.mouse.down();
+    await page.mouse.move(s.x + 140, s.y + 190, { steps: 4 });
+    await page.mouse.up();
+    await page.keyboard.press('Escape');
+    await openExport(page);
+    await expect(page.getByTestId('export-overwrite')).toContainText('1 changed');
   });
 
   test('photos not opened from a folder are never touched, and are called out', async ({ page }) => {
@@ -589,10 +645,14 @@ test.describe('files on disk', () => {
     await page.getByTestId('export-menu').click();
     await importFolder(page);
     await expect(page.locator('.film')).toHaveCount(3);
-    await page.getByTestId('export-menu').click();
-    await expect(page.getByTestId('export-overwrite')).toContainText('2 of 3');
+    await page.keyboard.press('ArrowRight'); // photo 1 is the normal import; 2 and 3 came from the folder
+    await type(page, 'notes');
+    await page.keyboard.press('ArrowRight');
+    await type(page, 'cirrus');
+    await openExport(page);
+    await expect(page.getByTestId('export-overwrite')).toContainText('2 changed');
     await page.getByTestId('export-overwrite').click();
-    await expect(page.getByTestId('dialog')).toContainText('1 other photo was not imported from a folder and will not be changed');
+    await expect(page.getByTestId('dialog')).toContainText('1 photo not opened from a folder will not be touched either');
     await page.getByTestId('dialog-cancel').click();
   });
 
@@ -1006,11 +1066,79 @@ test.describe('file name, zoom and the box tool', () => {
     await page.mouse.move(s.x + 150, s.y + 350, { steps: 4 });
     await page.mouse.up();
     await expect(page.locator('.rbox')).toHaveCount(4);
-    // Moving to another photo ends it too.
+  });
+
+  test('+ Box stays on when you move to the next photo, and you can still select an existing box', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByTestId('file-input').setInputFiles([fixtures.notes, fixtures.cirrus]);
+    await expect(page.locator('.film')).toHaveCount(2);
+    await type(page, 'notes');
+    const draw = page.getByTestId('draw');
     await draw.click();
     await expect(draw).toHaveAttribute('aria-pressed', 'true');
+
+    // Tap the preset box: it is selected, not a new box.
+    const box = page.locator('.rbox').first();
+    await box.click({ position: { x: 20, y: 20 } });
+    await expect(page.locator('.rbox')).toHaveCount(1);
+    await expect(page.locator('.rbox.selected')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Delete box' })).toBeVisible();
+    await expect(draw).toHaveAttribute('aria-pressed', 'true');
+
+    // A drag that starts on a box still draws a new one.
+    const b = (await box.boundingBox())!;
+    await page.mouse.move(b.x + 20, b.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(b.x + 80, b.y + 60, { steps: 4 });
+    await page.mouse.up();
+    await expect(page.locator('.rbox')).toHaveCount(2);
+
+    // Tapping empty photo deselects, and the tool stays on.
+    const s = (await page.getByTestId('redact-surface').boundingBox())!;
+    await page.mouse.click(s.x + 30, s.y + 300);
+    await expect(page.locator('.rbox')).toHaveCount(2);
+    await expect(page.locator('.rbox.selected')).toHaveCount(0);
+
+    // Next photo: still on, and it can draw straight away.
     await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('count')).toHaveText('2 / 2');
+    await expect(draw).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByText(/Drawing: drag for each box/)).toBeVisible();
+    const before = await page.locator('.rbox').count();
+    const s2 = (await page.getByTestId('redact-surface').boundingBox())!;
+    await page.mouse.move(s2.x + 30, s2.y + 300);
+    await page.mouse.down();
+    await page.mouse.move(s2.x + 150, s2.y + 330, { steps: 4 });
+    await page.mouse.up();
+    await expect(page.locator('.rbox')).toHaveCount(before + 1);
+    // And it is the new photo's own boxes that you can select, one tap each (first tap empty photo to dismiss the floating options).
+    await page.mouse.click(s2.x + 30, s2.y + 200);
+    await page.locator('.rbox').first().click({ position: { x: 10, y: 10 } });
+    await expect(page.locator('.rbox.selected')).toHaveCount(1);
+    await expect(page.locator('.rbox')).toHaveCount(before + 1);
+    // Esc turns it off.
+    await page.keyboard.press('Escape');
     await expect(draw).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('a selected box can still be resized from its handles while + Box is on', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByTestId('file-input').setInputFiles(fixtures.notes);
+    await type(page, 'notes');
+    await page.getByTestId('draw').click();
+    await page.locator('.rbox').first().click({ position: { x: 20, y: 20 } });
+    const handle = page.locator('.rbox.selected .handle.sw');
+    await expect(handle).toBeVisible();
+    const before = (await page.locator('.rbox.selected').boundingBox())!;
+    const h = (await handle.boundingBox())!;
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(h.x + h.width / 2 - 40, h.y + h.height / 2 + 30, { steps: 4 });
+    await page.mouse.up();
+    await expect(page.locator('.rbox')).toHaveCount(1); // resized, not a new box
+    const after = (await page.locator('.rbox.selected').boundingBox())!;
+    expect(after.width).toBeGreaterThan(before.width + 20);
+    expect(after.height).toBeGreaterThan(before.height + 15);
   });
 });
 
