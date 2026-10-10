@@ -22,7 +22,7 @@ Covers patient identifiers on photos of clinical material (paper notes, Optos, C
 
 **Zoom.** The button beside **+ Box** shows the current zoom. **Fit** shows the whole photo in the frame. The other levels are real percentages of actual size, where **100% means one photo pixel per screen pixel** (50%, 100%, 200%, 400%). Zoomed in, the photo is shown at full resolution so it stays sharp, and zooming centres on the box you have selected. Keys: **F** = Fit, **1** = 100%.
 
-**+ Box is a toggle.** Press it once and drag as many boxes as you like. It stays on until you press it again, press Esc, or move to another photo. Tap the type that is already chosen to deselect it and remove its boxes.
+**+ Box is a toggle.** Press it once and drag as many boxes as you like. It stays on until you press it again, press Esc, or move to another photo. Tap the type that is already chosen to deselect it and remove its boxes; the next photos then start with no type until you choose one.
 
 **Layouts (saved box positions).** *Built-in* is the starting guess. Once the boxes sit where you want them, open the photo **⋯** menu and choose **Save boxes as new layout…**, then name it (for example "Clinic A sticker"). You can keep several per type: once a type has a saved layout, a **Layout** selector appears under the type buttons so you can switch between them. **Make default** (★) chooses the layout that new photos of that type start with. **Update** overwrites a layout with the current boxes, and **Delete layout** removes it. Layouts store positions and a name only, never the image or any text, and they stay on this device in the browser's local storage. Clearing the browser's site data removes them.
 

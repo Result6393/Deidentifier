@@ -815,14 +815,18 @@ test.describe('deselecting the type', () => {
     await expect(page.locator('[data-type="notes"]')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.locator('.rbox')).toHaveCount(0);
     await expect(page.getByText('Choose a type above to place the boxes')).toBeVisible();
-    // Going on and coming back does not quietly put the type back (the next photo, untouched, still carries the last one forward).
+    // Going on does not carry a type onto the next photo, and coming back does not quietly put it back.
     await page.keyboard.press('ArrowRight');
-    await expect(page.locator('.rbox')).toHaveCount(1);
+    await expect(page.locator('.rbox')).toHaveCount(0);
+    await expect(page.locator('[data-type="notes"]')).toHaveAttribute('aria-pressed', 'false');
     await page.keyboard.press('ArrowLeft');
     await expect(page.locator('.rbox')).toHaveCount(0);
     await expect(page.locator('[data-type="notes"]')).toHaveAttribute('aria-pressed', 'false');
-    // Choosing a type again works as before.
+    // Choosing a type again works as before, and is carried forward again.
     await type(page, 'cirrus');
+    await expect(page.locator('.rbox')).toHaveCount(4);
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('[data-type="cirrus"]')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('.rbox')).toHaveCount(4);
   });
 

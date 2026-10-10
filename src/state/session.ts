@@ -215,6 +215,8 @@ export function clearType(img: WorkImage): void {
   img.boxes = [];
   img.edited = false;
   img.noType = true;
+  // Deselecting also stops the type being carried onto the next photos, until a type is chosen again.
+  session.lastType = null;
   changed();
 }
 
