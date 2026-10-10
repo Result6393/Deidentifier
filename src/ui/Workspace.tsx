@@ -243,6 +243,9 @@ export function Workspace({ onImport, onCamera, onImportFolder }: { onImport: ()
   // Controls for the selected box float over the photo, on the side away from the box.
   const boxBar = box && (
     <>
+      <button class="btn danger small" onClick={() => removeBox(box.id)} data-testid="delete-box" title="Delete this box (Delete key)">
+        Delete box
+      </button>
       <span class="nowrap">Print on box:</span>
       {STAMPS.map((s) => (
         <button key={s} class={`chip ${box.stamp === s ? 'on' : ''}`} onClick={() => setStamp(box, s)}>
@@ -263,10 +266,6 @@ export function Workspace({ onImport, onCamera, onImportFolder }: { onImport: ()
           None
         </button>
       )}
-      <span class="spacer" />
-      <button class="btn danger small" onClick={() => removeBox(box.id)}>
-        Delete box
-      </button>
     </>
   );
 
@@ -386,7 +385,7 @@ export function Workspace({ onImport, onCamera, onImportFolder }: { onImport: ()
           onSwipe={go}
           boxBar={boxBar}
           boxBarAt={box && box.y + box.h / 2 > 0.5 && zoom === 0 ? 'top' : 'bottom'}
-          hint={drawMode ? 'Drawing: drag for each box, tap a box to select it. Esc or + Box to stop.' : img.type ? undefined : 'Choose a type above to place the boxes'}
+          hint={drawMode ? 'Drawing: drag on the photo to draw, drag a box to move it. Esc or + Box to stop.' : img.type ? undefined : 'Choose a type above to place the boxes'}
           hintAt={drawMode ? 'top' : 'center'}
         />
         <div class="filebar" data-testid="filebar">

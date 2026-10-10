@@ -1047,7 +1047,7 @@ test.describe('file name, zoom and the box tool', () => {
     await expect(draw).toHaveAttribute('aria-pressed', 'false');
     await draw.click();
     await expect(draw).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByText(/Drawing: drag for each box/)).toBeVisible();
+    await expect(page.getByText(/Drawing: drag on the photo to draw/)).toBeVisible();
     const s = (await page.getByTestId('redact-surface').boundingBox())!;
     for (const y of [140, 200, 260]) {
       await page.mouse.move(s.x + 30, s.y + y);
@@ -1059,7 +1059,7 @@ test.describe('file name, zoom and the box tool', () => {
     await expect(draw).toHaveAttribute('aria-pressed', 'true');
     await page.keyboard.press('Escape');
     await expect(draw).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.getByText(/Drawing: drag for each box/)).toHaveCount(0);
+    await expect(page.getByText(/Drawing: drag on the photo to draw/)).toHaveCount(0);
     // Dragging on empty photo no longer draws.
     await page.mouse.move(s.x + 30, s.y + 320);
     await page.mouse.down();
@@ -1085,11 +1085,22 @@ test.describe('file name, zoom and the box tool', () => {
     await expect(page.getByRole('button', { name: 'Delete box' })).toBeVisible();
     await expect(draw).toHaveAttribute('aria-pressed', 'true');
 
-    // A drag that starts on a box still draws a new one.
+    // A drag that starts on a box moves it (it does not draw a second box on top).
     const b = (await box.boundingBox())!;
     await page.mouse.move(b.x + 20, b.y + 20);
     await page.mouse.down();
-    await page.mouse.move(b.x + 80, b.y + 60, { steps: 4 });
+    await page.mouse.move(b.x - 40, b.y + 80, { steps: 4 });
+    await page.mouse.up();
+    await expect(page.locator('.rbox')).toHaveCount(1);
+    const moved = (await box.boundingBox())!;
+    expect(Math.abs(moved.x - b.x)).toBeGreaterThan(30);
+    expect(Math.abs(moved.y - b.y)).toBeGreaterThan(30);
+    await expect(draw).toHaveAttribute('aria-pressed', 'true');
+    // A drag on empty photo draws a new box.
+    const s0 = (await page.getByTestId('redact-surface').boundingBox())!;
+    await page.mouse.move(s0.x + 30, s0.y + 220);
+    await page.mouse.down();
+    await page.mouse.move(s0.x + 150, s0.y + 250, { steps: 4 });
     await page.mouse.up();
     await expect(page.locator('.rbox')).toHaveCount(2);
 
@@ -1103,7 +1114,7 @@ test.describe('file name, zoom and the box tool', () => {
     await page.keyboard.press('ArrowRight');
     await expect(page.getByTestId('count')).toHaveText('2 / 2');
     await expect(draw).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByText(/Drawing: drag for each box/)).toBeVisible();
+    await expect(page.getByText(/Drawing: drag on the photo to draw/)).toBeVisible();
     // The carried-over type places its preset box (wait for it rather than counting too early).
     await expect(page.locator('.rbox')).toHaveCount(1);
     const before = 1;
@@ -1144,6 +1155,73 @@ test.describe('file name, zoom and the box tool', () => {
   });
 });
 
+test.describe('rotating, moving and deleting boxes', () => {
+  const boxStyles = (page: Page) =>
+    page.locator('.rbox').evaluateAll((els) => els.map((e) => { const st = (e as HTMLElement).style; return [st.left, st.top, st.width, st.height].join(' '); }));
+
+  test('rotating the photo leaves the boxes where they are in the frame', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles(fixtures.notes);
+    await type(page, 'notes');
+    const before = await boxStyles(page);
+    expect(before).toHaveLength(1);
+    await tool(page, /Rotate/);
+    await expect(page.locator('canvas.display.full')).toBeVisible();
+    expect(await boxStyles(page)).toEqual(before);
+    await tool(page, /Rotate/);
+    expect(await boxStyles(page)).toEqual(before);
+    await tool(page, /Rotate/);
+    // The saved image is the rotated photo with the boxes in those same frame positions.
+    page.once('dialog', (d) => d.accept()); // not marked done
+    const files = await exportZip(page);
+    const out = files['case-image-001.jpg'];
+    const dims = await page.evaluate(async (b64) => {
+      const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))]));
+      return [bmp.width, bmp.height];
+    }, out.toString('base64'));
+    expect(dims[0]).toBeGreaterThan(dims[1]); // a portrait photo turned a quarter turn (three times) is now landscape
+    for (const rgb of await sample(page, out, [[0.75, 0.08], [0.9, 0.15]])) expect(Math.max(...rgb)).toBeLessThan(25);
+  });
+
+  test('delete box is at the start of the options bar and removes the box', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByTestId('file-input').setInputFiles(fixtures.notes);
+    await type(page, 'notes');
+    await page.locator('.rbox').first().click({ position: { x: 20, y: 20 } });
+    const del = page.getByTestId('delete-box');
+    const bar = (await page.locator('.box-bar').boundingBox())!;
+    const d = (await del.boundingBox())!;
+    expect(d.x - bar.x).toBeLessThan(40); // first thing in the bar
+    await del.click();
+    await expect(page.locator('.rbox')).toHaveCount(0);
+  });
+
+  for (const c of [
+    { name: 'phone 390', viewport: { width: 390, height: 844 }, font: null },
+    { name: 'phone 360 in a wide font', viewport: { width: 360, height: 740 }, font: 'DejaVu Sans' },
+  ]) {
+    test.describe(`on a ${c.name}`, () => {
+      test.use({ hasTouch: true, viewport: c.viewport });
+
+      test('Delete box is fully on screen; with + Box on, tap a box then Delete', async ({ page }) => {
+        if (c.font) await page.addStyleTag({ content: `html,body,button,select,input,textarea{font-family:'${c.font}' !important}` });
+        await page.getByTestId('file-input').setInputFiles(fixtures.notes);
+        await type(page, 'notes');
+        await page.getByTestId('draw').tap();
+        await expect(page.getByTestId('draw')).toHaveAttribute('aria-pressed', 'true');
+        await page.locator('.rbox').first().tap({ position: { x: 15, y: 15 } });
+        await expect(page.locator('.rbox')).toHaveCount(1); // selected, not a second box
+        const frame = (await page.locator('.viewport').boundingBox())!;
+        const d = (await page.getByTestId('delete-box').boundingBox())!;
+        expect(d.x).toBeGreaterThanOrEqual(frame.x);
+        expect(d.x + d.width).toBeLessThanOrEqual(frame.x + frame.width);
+        await page.getByTestId('delete-box').tap();
+        await expect(page.locator('.rbox')).toHaveCount(0);
+        await expect(page.getByTestId('draw')).toHaveAttribute('aria-pressed', 'true');
+      });
+    });
+  }
+});
+
 test.describe('touch', () => {
   test.use({ hasTouch: true, viewport: { width: 420, height: 800 } });
 
@@ -1159,6 +1237,23 @@ test.describe('touch', () => {
     }
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   }
+
+  test('with + Box on, touching and dragging a box moves it; dragging empty photo draws', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles(fixtures.notes);
+    await type(page, 'notes');
+    await page.getByTestId('draw').tap();
+    await expect(page.getByTestId('draw')).toHaveAttribute('aria-pressed', 'true');
+    const b = (await page.locator('.rbox').first().boundingBox())!;
+    await swipe(page, [b.x + b.width / 2, b.y + b.height / 2], [b.x + b.width / 2 - 70, b.y + b.height / 2 + 60]);
+    await expect(page.locator('.rbox')).toHaveCount(1); // moved, not a new box on top
+    const after = (await page.locator('.rbox').first().boundingBox())!;
+    expect(Math.abs(after.x - b.x)).toBeGreaterThan(40);
+    expect(after.y - b.y).toBeGreaterThan(30);
+    await expect(page.getByTestId('draw')).toHaveAttribute('aria-pressed', 'true');
+    const s = (await page.getByTestId('redact-surface').boundingBox())!;
+    await swipe(page, [s.x + 30, s.y + 250], [s.x + 160, s.y + 290]);
+    await expect(page.locator('.rbox')).toHaveCount(2);
+  });
 
   test('swiping the photo moves to the next and previous photo', async ({ page }) => {
     await importThree(page);

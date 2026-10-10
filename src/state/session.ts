@@ -1,5 +1,5 @@
 import { presetBoxes, startingPreset } from '../presets/templates';
-import { makeBox, rotateRect90 } from '../editor/boxes';
+import { makeBox } from '../editor/boxes';
 import type { DirHandleLike, FileHandleLike } from '../fs';
 import type { Box, DocType } from '../types';
 
@@ -242,12 +242,11 @@ export function applyPreset(img: WorkImage, presetId: string | null): void {
   changed();
 }
 
-/** Rotates the image a quarter turn clockwise, keeping any boxes in place on it. */
+/** Turns the photo a quarter turn clockwise. Boxes stay where they are in the frame (they are not turned with it). */
 export function rotate(img: WorkImage): void {
   img.rotation = (img.rotation + 1) % 4;
   img.modified = true;
   img.aspect = 1 / img.aspect;
-  img.boxes = img.boxes.map((b) => ({ ...b, ...rotateRect90(b) }));
   dropCanvas(img.id);
   changed();
 }

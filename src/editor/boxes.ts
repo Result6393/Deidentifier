@@ -17,8 +17,3 @@ export function clampRect<T extends Rect>(r: T): T {
 export function makeBox(r: Rect): Box {
   return clampRect({ id: boxId(), x: r.x, y: r.y, w: r.w, h: r.h });
 }
-
-/** The same rectangle after rotating the image 90° clockwise. */
-export function rotateRect90(r: Rect): Rect {
-  return { x: 1 - r.y - r.h, y: r.x, w: r.h, h: r.w };
-}
