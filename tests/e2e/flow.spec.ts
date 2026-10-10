@@ -1104,7 +1104,9 @@ test.describe('file name, zoom and the box tool', () => {
     await expect(page.getByTestId('count')).toHaveText('2 / 2');
     await expect(draw).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByText(/Drawing: drag for each box/)).toBeVisible();
-    const before = await page.locator('.rbox').count();
+    // The carried-over type places its preset box (wait for it rather than counting too early).
+    await expect(page.locator('.rbox')).toHaveCount(1);
+    const before = 1;
     const s2 = (await page.getByTestId('redact-surface').boundingBox())!;
     await page.mouse.move(s2.x + 30, s2.y + 300);
     await page.mouse.down();
