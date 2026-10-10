@@ -34,6 +34,17 @@ export interface WorkImage {
   done: boolean;
   /** Set when imported from a folder: the file can be overwritten. */
   source?: SourceFile;
+  /** The user deliberately removed the type, so don't carry the last-used type onto this photo. */
+  noType?: boolean;
+  /** File name shown in the file bar: the imported file's name, or "Camera photo N". */
+  name: string;
+  /** The photo's real pixel size (before rotation), so zoom levels can be real percentages. */
+  pxW: number;
+  pxH: number;
+  /** A file we created for this photo with Save; later presses update it in place. */
+  saveHandle?: FileHandleLike;
+  /** Signature of the photo when last saved; equal to the current one means "nothing to save". */
+  savedSig?: string;
 }
 
 interface SessionState {
@@ -41,9 +52,10 @@ interface SessionState {
   currentId: string | null;
   lastType: DocType | null;
   importing: { done: number; total: number } | null;
+  cameraShots: number;
 }
 
-const fresh = (): SessionState => ({ images: [], currentId: null, lastType: null, importing: null });
+const fresh = (): SessionState => ({ images: [], currentId: null, lastType: null, importing: null, cameraShots: 0 });
 
 /** All patient data lives here, in memory, and nowhere else. */
 export const session: SessionState = fresh();
@@ -73,7 +85,7 @@ export function zeroCanvas(c: HTMLCanvasElement | null | undefined): void {
  * Decodes a photo (applying its EXIF orientation, then `quarterTurns`) into a
  * canvas no larger than maxEdge.
  */
-export async function decodeImage(blob: Blob, quarterTurns: number, maxEdge: number): Promise<HTMLCanvasElement> {
+export async function decodeImageSized(blob: Blob, quarterTurns: number, maxEdge: number): Promise<{ canvas: HTMLCanvasElement; srcW: number; srcH: number }> {
   const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
   try {
     const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
@@ -87,11 +99,24 @@ export async function decodeImage(blob: Blob, quarterTurns: number, maxEdge: num
     ctx.translate(c.width / 2, c.height / 2);
     ctx.rotate((q * Math.PI) / 2);
     ctx.drawImage(bmp, -w / 2, -h / 2, w, h);
-    return c;
+    return { canvas: c, srcW: bmp.width, srcH: bmp.height };
   } finally {
     bmp.close();
   }
 }
+
+export async function decodeImage(blob: Blob, quarterTurns: number, maxEdge: number): Promise<HTMLCanvasElement> {
+  return (await decodeImageSized(blob, quarterTurns, maxEdge)).canvas;
+}
+
+/** The photo's size as shown (after any rotation), in real pixels. */
+export const shownPx = (img: WorkImage) => (img.rotation % 2 ? { w: img.pxH, h: img.pxW } : { w: img.pxW, h: img.pxH });
+
+/** Cheap fingerprint of everything that ends up in a saved file; used to tell if there is anything new to save. */
+export const sigOf = (img: WorkImage) =>
+  JSON.stringify([img.boxes.map((b) => [b.x, b.y, b.w, b.h, b.stamp ?? '']), img.rotation, img.blob.size]);
+
+export const isSaved = (img: WorkImage) => img.savedSig !== undefined && img.savedSig === sigOf(img);
 
 export function makeThumb(src: HTMLCanvasElement): string {
   const scale = Math.min(1, THUMB_EDGE / Math.max(src.width, src.height));
@@ -121,6 +146,35 @@ export function dropCanvas(id: string): void {
   const p = cache.get(id);
   cache.delete(id);
   p?.then(zeroCanvas, () => undefined);
+  dropFull(id);
+}
+
+// Full-resolution copy of the photo being zoomed in on (only ever one at a time).
+export const FULL_EDGE = 8000;
+const fullCache = new Map<string, Promise<HTMLCanvasElement>>();
+
+/** True when the full-size photo is bigger than the working copy, so zooming in needs the full one. */
+export const needsFull = (img: WorkImage) => Math.max(img.pxW, img.pxH) > VIEW_EDGE;
+
+export function getFullCanvas(img: WorkImage): Promise<HTMLCanvasElement> {
+  let p = fullCache.get(img.id);
+  if (!p) {
+    p = decodeImage(img.blob, img.rotation, FULL_EDGE);
+    fullCache.set(img.id, p);
+    p.catch(() => fullCache.delete(img.id));
+  }
+  return p;
+}
+
+export function dropFull(id: string): void {
+  const p = fullCache.get(id);
+  fullCache.delete(id);
+  p?.then(zeroCanvas, () => undefined);
+}
+
+/** Frees every full-resolution copy except the given image's (or all, with null). */
+export function keepFullOnly(id: string | null): void {
+  for (const k of [...fullCache.keys()]) if (k !== id) dropFull(k);
 }
 
 /** Frees every cached canvas except those of the given images. */
@@ -154,9 +208,20 @@ export function select(id: string): void {
 
 const seed = (type: DocType, presetId: string | null): Box[] => presetBoxes(type, presetId).map((r) => makeBox(r));
 
+/** Deselects the image type and removes its preset boxes. */
+export function clearType(img: WorkImage): void {
+  img.type = null;
+  img.presetId = null;
+  img.boxes = [];
+  img.edited = false;
+  img.noType = true;
+  changed();
+}
+
 /** Chooses the image type and drops in that type's default preset boxes. */
 export function setType(img: WorkImage, type: DocType): void {
   img.type = type;
+  img.noType = false;
   img.presetId = startingPreset(type);
   img.boxes = seed(type, img.presetId);
   img.edited = false;
@@ -186,6 +251,8 @@ export function rotate(img: WorkImage): void {
 export async function replaceBlob(img: WorkImage, blob: Blob, canvas: HTMLCanvasElement): Promise<void> {
   img.blob = blob;
   img.rotation = 0;
+  img.pxW = canvas.width;
+  img.pxH = canvas.height;
   img.thumb = makeThumb(canvas);
   img.thumbRot = 0;
   img.aspect = canvas.width / canvas.height;
@@ -205,7 +272,7 @@ export function removeImage(id: string): void {
 }
 
 /** Opens photos one at a time so the first is editable straight away. */
-export async function addFiles(files: Blob[], sources?: (SourceFile | undefined)[]): Promise<number> {
+export async function addFiles(files: Blob[], sources?: (SourceFile | undefined)[], names?: string[]): Promise<number> {
   let failed = 0;
   const epoch = wipeCount;
   session.importing = { done: 0, total: files.length };
@@ -213,13 +280,13 @@ export async function addFiles(files: Blob[], sources?: (SourceFile | undefined)
   for (let n = 0; n < files.length; n++) {
     const blob = files[n];
     try {
-      const canvas = await decodeImage(blob, 0, VIEW_EDGE);
+      const { canvas, srcW, srcH } = await decodeImageSized(blob, 0, VIEW_EDGE);
       if (epoch !== wipeCount) {
         // The session was wiped while this photo was opening.
         zeroCanvas(canvas);
         return failed;
       }
-      const img: WorkImage = { id: newId(), blob, thumb: makeThumb(canvas), aspect: canvas.width / canvas.height, thumbRot: 0, rotation: 0, type: null, presetId: null, boxes: [], edited: false, done: false, source: sources?.[n] };
+      const img: WorkImage = { id: newId(), blob, thumb: makeThumb(canvas), aspect: canvas.width / canvas.height, thumbRot: 0, rotation: 0, type: null, presetId: null, boxes: [], edited: false, done: false, source: sources?.[n], name: names?.[n] ?? sources?.[n]?.name ?? (blob as File).name ?? `Photo ${session.images.length + 1}`, pxW: srcW, pxH: srcH };
       cache.set(img.id, Promise.resolve(canvas));
       session.images.push(img);
       session.currentId ??= img.id;
@@ -247,6 +314,7 @@ export const onWipe = (fn: () => void) => {
 export function wipe(): void {
   wipeCount++;
   keepOnly([]);
+  keepFullOnly(null);
   wipeHooks.forEach((fn) => fn());
   Object.assign(session, fresh());
   changed();

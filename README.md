@@ -14,11 +14,21 @@ Covers patient identifiers on photos of clinical material (paper notes, Optos, C
 4. Press **Done** (or Enter), then **›** (or →, or swipe the photo left). The filmstrip along the bottom shows every photo with its boxes: a green tick means done, a red `?` means no boxes yet. Tap any thumbnail to jump to it.
 5. **Export** all of them: one ZIP, a folder (desktop Chrome/Edge), the Android share sheet, or separate downloads. Before exporting you get a warning listing any photo with no boxes or not marked done.
 
+**Under the photo** is a bar with the file's name (hover for the full name; imports from the camera are called "Camera photo 1", etc.), **Copy**, and a **Save** button for just this photo, right now. The button says what it will do:
+- **Overwrite**: the photo came from **Import folder** (see below). After a quick "Replace “name”?" confirmation, the original is replaced in its own format and full size.
+- **Save**: a new file. On a computer the browser's Save dialog opens suggesting `name (redacted).jpg`; if you pick the original's own name the browser asks whether to replace it. On a phone it downloads `name (redacted).jpg`.
+- **Update file**: you already saved this photo this session, so it rewrites that same file without asking again.
+- **Saved ✓**: nothing has changed since the last save. It switches back as soon as you change a box, rotate or straighten. Saving also marks the photo Done and puts a small ⤓ on its thumbnail. **Ctrl+S** does the same.
+
+**Zoom.** The button beside **+ Box** shows the current zoom. **Fit** shows the whole photo in the frame. The other levels are real percentages of actual size, where **100% means one photo pixel per screen pixel** (50%, 100%, 200%, 400%). Zoomed in, the photo is shown at full resolution so it stays sharp, and zooming centres on the box you have selected. Keys: **F** = Fit, **1** = 100%.
+
+**+ Box is a toggle.** Press it once and drag as many boxes as you like. It stays on until you press it again, press Esc, or move to another photo. Tap the type that is already chosen to deselect it and remove its boxes.
+
 **Layouts (saved box positions).** *Built-in* is the starting guess. Once the boxes sit where you want them, open the photo **⋯** menu and choose **Save boxes as new layout…**, then name it (for example "Clinic A sticker"). You can keep several per type: once a type has a saved layout, a **Layout** selector appears under the type buttons so you can switch between them. **Make default** (★) chooses the layout that new photos of that type start with. **Update** overwrites a layout with the current boxes, and **Delete layout** removes it. Layouts store positions and a name only, never the image or any text, and they stay on this device in the browser's local storage. Clearing the browser's site data removes them.
 
-The photo **⋯** menu also holds the occasional tools: **Rotate**, **Straighten** (lets you drag four corners onto a page or screen that was photographed at an angle; this resets that photo's boxes to its layout), **Solid preview** (shows the boxes exactly as they will be exported), **Reset boxes**, and, on a phone, **Zoom**. The top **⋯** menu has **End session**, the offline status and the version number. Tap a box to get its options (print RE/LE/OD/OS/OU or custom text on it, or delete it); they float over the photo so it never moves.
+The photo **⋯** menu also holds the occasional tools: **Rotate**, **Straighten** (lets you drag four corners onto a page or screen that was photographed at an angle; this resets that photo's boxes to its layout), **Solid preview** (shows the boxes exactly as they will be exported), and **Reset boxes**. The top **⋯** menu has **End session**, the offline status and the version number. Tap a box to get its options (print RE/LE/OD/OS/OU or custom text on it, or delete it); they float over the photo so it never moves.
 
-**Copy** puts the photo on screen, with its boxes applied, on the clipboard (PNG, up to 2000 px) ready to paste. Swiping works on an empty part of the photo at 1× zoom; it won't trigger when you drag a box, draw, or pan a zoomed photo.
+**Copy** (under the photo) puts the photo on screen, with its boxes applied, on the clipboard (PNG, up to 2000 px) ready to paste. Swiping works on an empty part of the photo at 1× zoom; it won't trigger when you drag a box, draw, or pan a zoomed photo.
 
 Keys: ← / → previous / next, Enter done, Delete removes the selected box, Esc deselects.
 

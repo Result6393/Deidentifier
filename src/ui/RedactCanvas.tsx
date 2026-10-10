@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { clampRect, makeBox } from '../editor/boxes';
 import { zeroCanvas, type WorkImage } from '../state/session';
 import type { Pt, Rect } from '../types';
@@ -16,9 +16,11 @@ interface Props {
   selected: string | null;
   setSelected: (id: string | null) => void;
   drawMode: boolean;
-  setDrawMode: (on: boolean) => void;
   solid: boolean;
+  /** 0 = fit the whole photo in the frame; otherwise a multiple of actual size (1 = one photo pixel per screen pixel). */
   zoom: number;
+  /** The photo's real width in pixels as shown (after rotation). */
+  pxW: number;
   /** Called after any box is moved, resized, drawn or removed. */
   onEdit: () => void;
   /** Called with +1 (next) or -1 (previous) after a horizontal swipe on the photo. */
@@ -29,11 +31,14 @@ interface Props {
   boxBarAt?: 'top' | 'bottom';
   /** Centered message over the photo (e.g. before a type is chosen). */
   hint?: string;
+  hintAt?: 'top' | 'center';
 }
 
-export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, setDrawMode, solid, zoom, onEdit, onSwipe, boxBar, boxBarAt = 'bottom', hint }: Props) {
+export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, solid, zoom, pxW, onEdit, onSwipe, boxBar, boxBarAt = 'bottom', hint, hintAt = 'center' }: Props) {
   const displayRef = useRef<HTMLCanvasElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<HTMLDivElement>(null);
+  const center = useRef({ x: 0.5, y: 0.5 });
   const [drag, setDrag] = useState<Drag | null>(null);
   const [, tick] = useState(0);
   const swipe = useRef<{ x: number; y: number; t: number; id: number } | null>(null);
@@ -47,6 +52,27 @@ export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, set
     d.getContext('2d')!.drawImage(canvas, 0, 0);
     return () => zeroCanvas(d);
   }, [canvas]);
+
+  // Remember which part of the photo is in the middle of the view, so a zoom change can keep it there.
+  const trackCenter = () => {
+    const v = viewRef.current;
+    const sf = surfaceRef.current;
+    if (!v || !sf) return;
+    center.current = { x: (v.scrollLeft + v.clientWidth / 2 - sf.offsetLeft) / sf.offsetWidth, y: (v.scrollTop + v.clientHeight / 2 - sf.offsetTop) / sf.offsetHeight };
+  };
+  const selectedBox = img.boxes.find((b) => b.id === selected);
+  const prevZoom = useRef(zoom);
+  useLayoutEffect(() => {
+    const v = viewRef.current;
+    const sf = surfaceRef.current;
+    if (!v || !sf || prevZoom.current === zoom) return;
+    prevZoom.current = zoom;
+    // Zoom toward the selected box if there is one, otherwise toward where you were looking.
+    const t = selectedBox ? { x: selectedBox.x + selectedBox.w / 2, y: selectedBox.y + selectedBox.h / 2 } : center.current;
+    v.scrollLeft = Math.max(0, sf.offsetLeft + t.x * sf.offsetWidth - v.clientWidth / 2);
+    v.scrollTop = Math.max(0, sf.offsetTop + t.y * sf.offsetHeight - v.clientHeight / 2);
+    trackCenter();
+  }, [zoom]);
 
   const toNorm = (e: PointerEvent): Pt => {
     const r = surfaceRef.current!.getBoundingClientRect();
@@ -70,7 +96,7 @@ export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, set
     } else {
       setSelected(null);
       // A touch that starts on empty photo at 1× may become a swipe to the next photo.
-      if (zoom === 1 && e.pointerType !== 'mouse') swipe.current = { x: e.clientX, y: e.clientY, t: Date.now(), id: e.pointerId };
+      if (zoom === 0 && e.pointerType !== 'mouse') swipe.current = { x: e.clientX, y: e.clientY, t: Date.now(), id: e.pointerId };
       return;
     }
     e.preventDefault();
@@ -124,7 +150,6 @@ export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, set
         img.boxes = img.boxes.filter((x) => x !== b);
         setSelected(null);
       }
-      setDrawMode(false);
     }
     setDrag(null);
     onEdit();
@@ -132,12 +157,12 @@ export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, set
 
   return (
     <div class="frame">
-    <div class="viewport">
+    <div class="viewport" ref={viewRef} onScroll={trackCenter}>
       <div
         ref={surfaceRef}
-        class={`surface ${drawMode ? 'drawing' : ''} ${zoom === 1 && !drawMode ? 'swipeable' : ''}`}
+        class={`surface ${drawMode ? 'drawing' : ''} ${zoom === 0 && !drawMode ? 'swipeable' : ''}`}
         // At 1× the whole photo fits the frame; zoomed, it grows and the frame scrolls.
-        style={{ aspectRatio: String(img.aspect), width: zoom === 1 ? `min(100%, calc(var(--frame-h) * ${img.aspect}))` : `${zoom * 100}%` }}
+        style={{ aspectRatio: String(img.aspect), width: zoom === 0 ? `min(100%, calc(var(--frame-h) * ${img.aspect}))` : `${(pxW / (window.devicePixelRatio || 1)) * zoom}px` }}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -159,7 +184,7 @@ export function RedactCanvas({ img, canvas, selected, setSelected, drawMode, set
         ))}
       </div>
     </div>
-      {hint && <div class="photo-hint">{hint}</div>}
+      {hint && <div class={`photo-hint ${hintAt}`}>{hint}</div>}
       {boxBar && <div class={`box-bar ${boxBarAt}`}>{boxBar}</div>}
     </div>
   );

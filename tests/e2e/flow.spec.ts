@@ -418,7 +418,14 @@ test.describe('files on disk', () => {
 
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
-      (window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker = () => navigator.storage.getDirectory();
+      const w = window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>; showSaveFilePicker: (o: { suggestedName: string }) => Promise<FileSystemFileHandle>; __saveCalls: number };
+      w.showDirectoryPicker = () => navigator.storage.getDirectory();
+      // Stands in for the native "Save as" dialog: always saves into the test folder under the suggested name.
+      w.__saveCalls = 0;
+      w.showSaveFilePicker = async (o) => {
+        w.__saveCalls++;
+        return (await navigator.storage.getDirectory()).getFileHandle(o.suggestedName, { create: true });
+      };
     });
     await page.goto('/');
   });
@@ -675,6 +682,114 @@ test.describe('files on disk', () => {
     expect(Object.keys(await disk(page)).sort()).toEqual(['case-image-001.jpg', 'case-image-002.jpg']);
   });
 
+
+  // --- Saving just the current photo ---------------------------------------------------------
+  const saveCalls = (page: Page) => page.evaluate(() => (window as unknown as { __saveCalls: number }).__saveCalls);
+
+  test('Save writes this photo as a new "(redacted)" file, then updates the same file on later presses', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles([fixtures.notes, fixtures.cirrus]);
+    await expect(page.locator('.film')).toHaveCount(2);
+    await expect(page.getByTestId('filename')).toHaveText('notes.png');
+    await type(page, 'notes');
+    const save = page.getByTestId('save');
+    await expect(save).toHaveText('Save');
+    await save.click();
+    await expect(page.getByText('Saved “notes (redacted).png”.')).toBeVisible();
+    await expect(save).toHaveText('Saved ✓');
+    await expect(save).toBeDisabled();
+    // Stays on the photo, and it's now marked done and saved.
+    await expect(page.getByTestId('count')).toHaveText('1 / 2');
+    await expect(page.locator('.film-badge.done')).toHaveCount(1);
+    await expect(page.locator('.film-saved')).toHaveCount(1);
+    expect(await saveCalls(page)).toBe(1);
+    const first = await disk(page);
+    expect(Object.keys(first)).toEqual(['notes (redacted).png']);
+    expect(first['notes (redacted).png'].magic).toBe('89504e47');
+    for (const rgb of await pixels(page, 'notes (redacted).png', [[0.75, 0.08], [0.9, 0.15]])) expect(Math.max(...rgb)).toBeLessThan(25);
+
+    // Change something: the button comes back as "Update file", and rewrites the same file without asking again.
+    await page.getByTestId('draw').click();
+    const s = (await page.getByTestId('redact-surface').boundingBox())!;
+    await page.mouse.move(s.x + 30, s.y + 150);
+    await page.mouse.down();
+    await page.mouse.move(s.x + 140, s.y + 190, { steps: 4 });
+    await page.mouse.up();
+    await expect(save).toHaveText('Update file');
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(page.getByText('Updated “notes (redacted).png”.')).toBeVisible();
+    await expect(save).toHaveText('Saved ✓');
+    expect(await saveCalls(page)).toBe(1);
+    const second = await disk(page);
+    expect(Object.keys(second)).toEqual(['notes (redacted).png']);
+    expect(second['notes (redacted).png'].hash).not.toBe(first['notes (redacted).png'].hash);
+  });
+
+  test('Ctrl+S saves the current photo', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles(fixtures.cirrus);
+    await type(page, 'cirrus');
+    await page.keyboard.press('Control+s');
+    await expect(page.getByText('Saved “cirrus (redacted).png”.')).toBeVisible();
+    expect(Object.keys(await disk(page))).toEqual(['cirrus (redacted).png']);
+  });
+
+  test('without a save dialog (phones) Save downloads a "(redacted)" file', async ({ page }) => {
+    await page.addInitScript(() => delete (window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker);
+    await page.goto('/');
+    await page.getByTestId('file-input').setInputFiles(fixtures.notes);
+    await type(page, 'notes');
+    const download = page.waitForEvent('download');
+    await page.getByTestId('save').click();
+    expect((await download).suggestedFilename()).toBe('notes (redacted).png');
+    await expect(page.getByTestId('save')).toHaveText('Saved ✓');
+  });
+
+  test('Overwrite replaces the original after a quick confirmation; Cancel changes nothing', async ({ page }) => {
+    await seed(page, [{ name: 'a.jpg', from: fixtures.notes, as: 'image/jpeg' }]);
+    const before = await disk(page);
+    await importFolder(page);
+    await expect(page.getByTestId('filename')).toHaveText('a.jpg');
+    await type(page, 'notes');
+    await expect(page.getByTestId('save')).toHaveText('Overwrite');
+    await page.getByTestId('save').click();
+    await expect(page.getByTestId('dialog')).toContainText('Replace “a.jpg”?');
+    await expect(page.getByTestId('dialog-cancel')).toBeFocused();
+    await expect(page.getByTestId('dialog-tick')).toHaveCount(0); // quick confirm: no tick box
+    await page.getByTestId('dialog-cancel').click();
+    expect(await disk(page)).toEqual(before);
+    await expect(page.getByTestId('save')).toHaveText('Overwrite');
+
+    await page.getByTestId('save').click();
+    await page.getByTestId('dialog-go').click();
+    await expect(page.getByText('Replaced “a.jpg”.')).toBeVisible();
+    const after = await disk(page);
+    expect(Object.keys(after)).toEqual(['a.jpg']);
+    expect(after['a.jpg'].magic.startsWith('ffd8ff')).toBe(true);
+    expect(after['a.jpg'].hash).not.toBe(before['a.jpg'].hash);
+    for (const rgb of await pixels(page, 'a.jpg', [[0.75, 0.08], [0.9, 0.15]])) expect(Math.max(...rgb)).toBeLessThan(25);
+    await expect(page.getByTestId('save')).toHaveText('Saved ✓');
+    expect(await saveCalls(page)).toBe(0); // never opened the save dialog
+  });
+
+  test('Overwrite still stops if the file changed on disk after it was opened', async ({ page }) => {
+    await seed(page, [{ name: 'a.jpg', from: fixtures.notes, as: 'image/jpeg' }]);
+    await importFolder(page);
+    await type(page, 'notes');
+    await seed(page, [{ name: 'a.jpg', text: 'someone else saved a different file here' }]);
+    const edited = await disk(page);
+    await page.getByTestId('save').click();
+    await page.getByTestId('dialog-go').click();
+    await expect(page.getByTestId('dialog')).toContainText('“a.jpg” has changed since you opened it');
+    await expect(page.getByTestId('dialog-cancel')).toBeFocused();
+    await page.getByTestId('dialog-cancel').click();
+    expect(await disk(page)).toEqual(edited);
+    await page.getByTestId('save').click();
+    await page.getByTestId('dialog-go').click();
+    await page.getByTestId('dialog-go').click(); // "Overwrite anyway"
+    await expect(page.getByText('Replaced “a.jpg”.')).toBeVisible();
+    expect((await disk(page))['a.jpg'].hash).not.toBe(edited['a.jpg'].hash);
+  });
+
   test('ending the session forgets the folder handles', async ({ page }) => {
     await seed(page, threeOnDisk());
     await importFolder(page);
@@ -686,6 +801,212 @@ test.describe('files on disk', () => {
     const stored = await page.evaluate(async () => ({ ls: Object.keys(localStorage), dbs: (await indexedDB.databases()).map((d) => d.name) }));
     expect(stored.ls).toEqual([]);
     expect(stored.dbs).toEqual([]);
+  });
+});
+
+test.describe('deselecting the type', () => {
+  test('tapping the chosen type again removes it and its boxes, and it stays off', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles([fixtures.notes, fixtures.cirrus]);
+    await expect(page.locator('.film')).toHaveCount(2);
+    await type(page, 'notes');
+    await expect(page.locator('[data-type="notes"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.rbox')).toHaveCount(1);
+    await type(page, 'notes'); // tap the chosen type again
+    await expect(page.locator('[data-type="notes"]')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('.rbox')).toHaveCount(0);
+    await expect(page.getByText('Choose a type above to place the boxes')).toBeVisible();
+    // Going on and coming back does not quietly put the type back (the next photo, untouched, still carries the last one forward).
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('.rbox')).toHaveCount(1);
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.locator('.rbox')).toHaveCount(0);
+    await expect(page.locator('[data-type="notes"]')).toHaveAttribute('aria-pressed', 'false');
+    // Choosing a type again works as before.
+    await type(page, 'cirrus');
+    await expect(page.locator('.rbox')).toHaveCount(4);
+  });
+
+  test('deselecting after editing the boxes asks first', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles(fixtures.notes);
+    await type(page, 'notes');
+    await page.getByTestId('draw').click();
+    const s = (await page.getByTestId('redact-surface').boundingBox())!;
+    await page.mouse.move(s.x + 30, s.y + 150);
+    await page.mouse.down();
+    await page.mouse.move(s.x + 140, s.y + 190, { steps: 4 });
+    await page.mouse.up();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.rbox')).toHaveCount(2);
+    page.once('dialog', (d) => d.dismiss());
+    await type(page, 'notes');
+    await expect(page.locator('.rbox')).toHaveCount(2); // kept
+    page.once('dialog', (d) => d.accept());
+    await type(page, 'notes');
+    await expect(page.locator('.rbox')).toHaveCount(0);
+  });
+});
+
+test.describe('file name, zoom and the box tool', () => {
+  /** A big photo as an upload payload, so zoom percentages can be checked against real pixels. */
+  async function bigPhoto(page: Page, w = 4000, h = 3000) {
+    const b64 = await page.evaluate(
+      async ([w, h]) => {
+        const c = new OffscreenCanvas(w, h);
+        const ctx = c.getContext('2d')!;
+        const g = ctx.createLinearGradient(0, 0, w, h);
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(1, '#8899aa');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w, h);
+        const blob = await c.convertToBlob({ type: 'image/png' });
+        let s = '';
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        return btoa(s);
+      },
+      [w, h],
+    );
+    return { name: 'big-photo.png', mimeType: 'image/png', buffer: Buffer.from(b64, 'base64') };
+  }
+  const surfaceWidth = async (page: Page) => Math.round((await page.getByTestId('redact-surface').boundingBox())!.width);
+  const zoomTo = async (page: Page, label: string | RegExp) => {
+    await page.getByTestId('zoom-menu').click();
+    await page.getByRole('button', { name: label }).click();
+  };
+
+  test('the file name is shown, truncated with the full name on hover', async ({ page }) => {
+    const long = 'a-very-long-original-file-name-from-the-clinic-camera-2026-10-08-sequence-0001.png';
+    await page.getByTestId('file-input').setInputFiles([
+      { name: long, mimeType: 'image/png', buffer: readFileSync(fixtures.notes) },
+      { name: 'cirrus.png', mimeType: 'image/png', buffer: readFileSync(fixtures.cirrus) },
+    ]);
+    await expect(page.locator('.film')).toHaveCount(2);
+    await expect(page.getByTestId('filename')).toHaveText(long);
+    await expect(page.getByTestId('filename')).toHaveAttribute('title', long);
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('filename')).toHaveText('cirrus.png');
+  });
+
+  for (const c of [
+    { name: 'phone 390', viewport: { width: 390, height: 844 }, font: null },
+    { name: 'phone 360 in a wide font', viewport: { width: 360, height: 740 }, font: 'DejaVu Sans' },
+  ]) {
+    test(`the file bar stays on one row with a long name: ${c.name}`, async ({ page }) => {
+      await page.setViewportSize(c.viewport);
+      if (c.font) await page.addStyleTag({ content: `html,body,button,select,input,textarea{font-family:'${c.font}' !important}` });
+      await page.getByTestId('file-input').setInputFiles({ name: 'a-very-long-original-file-name-from-the-clinic-camera-2026-10-08-0001.png', mimeType: 'image/png', buffer: readFileSync(fixtures.notes) });
+      await type(page, 'notes');
+      const bar = (await page.getByTestId('filebar').boundingBox())!;
+      expect(bar.height).toBeLessThanOrEqual(48);
+      for (const id of ['copy', 'save']) await expect(page.getByTestId(id)).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      const surface = (await page.getByTestId('redact-surface').boundingBox())!;
+      expect(surface.y).toBeLessThanOrEqual(160);
+      // Photo, file bar and filmstrip all fit on the screen together.
+      const film = (await page.locator('.filmstrip').boundingBox())!;
+      expect(bar.y + bar.height).toBeLessThanOrEqual(film.y + 1);
+    });
+  }
+
+  test('zoom: Fit shows the whole photo, 100% is one photo pixel per screen pixel', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByTestId('file-input').setInputFiles(await bigPhoto(page));
+    await type(page, 'notes');
+    await expect(page.getByTestId('zoom-menu')).toHaveText(/Fit/);
+    const frame = (await page.locator('.viewport').boundingBox())!;
+    const fit = await surfaceWidth(page);
+    expect(fit).toBeLessThan(frame.width); // whole photo fits in the frame
+    expect((await page.getByTestId('redact-surface').boundingBox())!.height).toBeLessThanOrEqual(frame.height);
+
+    await zoomTo(page, /100%/);
+    await expect(page.getByTestId('zoom-menu')).toHaveText(/100%/);
+    expect(await surfaceWidth(page)).toBe(4000); // 4000-pixel-wide photo at 1 px per px
+    // Zoomed in, the photo is decoded at full size (not the 2400 px working copy) so it's sharp.
+    await expect.poll(() => page.locator('canvas.display.full').evaluate((c: HTMLCanvasElement) => c.width)).toBe(4000);
+    await zoomTo(page, /^200%/);
+    expect(await surfaceWidth(page)).toBe(8000);
+    await zoomTo(page, /^50%/);
+    expect(await surfaceWidth(page)).toBe(2000);
+    await zoomTo(page, /Fit to screen/);
+    expect(await surfaceWidth(page)).toBe(fit);
+    await expect(page.getByTestId('zoom-menu')).toHaveText(/Fit/);
+  });
+
+  test('zoom keys: 1 for 100%, F for fit', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByTestId('file-input').setInputFiles(await bigPhoto(page, 3000, 2000));
+    await type(page, 'notes');
+    await page.keyboard.press('1');
+    await expect(page.getByTestId('zoom-menu')).toHaveText(/100%/);
+    expect(await surfaceWidth(page)).toBe(3000);
+    await page.keyboard.press('f');
+    await expect(page.getByTestId('zoom-menu')).toHaveText(/Fit/);
+    expect(await surfaceWidth(page)).toBeLessThan(1280);
+  });
+
+  test.describe('on a high-density screen', () => {
+    test.use({ deviceScaleFactor: 2 });
+    test('100% means one photo pixel per device pixel', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.getByTestId('file-input').setInputFiles(await bigPhoto(page, 3000, 2000));
+      await type(page, 'notes');
+      await page.keyboard.press('1');
+      expect(await surfaceWidth(page)).toBe(1500); // 3000 photo pixels on a 2x screen
+    });
+  });
+
+  test('zooming in keeps the selected box in view', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByTestId('file-input').setInputFiles(await bigPhoto(page));
+    await type(page, 'notes'); // preset box sits in the top-right corner
+    await page.locator('.rbox').first().click({ position: { x: 10, y: 10 } });
+    await page.keyboard.press('1');
+    await expect(page.getByTestId('zoom-menu')).toHaveText(/100%/);
+    const frame = (await page.locator('.viewport').boundingBox())!;
+    await expect
+      .poll(async () => {
+        const b = (await page.locator('.rbox.selected').boundingBox())!;
+        const cx = b.x + b.width / 2;
+        const cy = b.y + b.height / 2;
+        return cx > frame.x && cx < frame.x + frame.width && cy > frame.y && cy < frame.y + frame.height;
+      })
+      .toBe(true);
+  });
+
+  test('+ Box stays on until you turn it off, so several boxes can be drawn in a row', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByTestId('file-input').setInputFiles([fixtures.notes, fixtures.cirrus]);
+    await expect(page.locator('.film')).toHaveCount(2);
+    await type(page, 'notes');
+    await expect(page.locator('.rbox')).toHaveCount(1);
+    const draw = page.getByTestId('draw');
+    await expect(draw).toHaveAttribute('aria-pressed', 'false');
+    await draw.click();
+    await expect(draw).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByText(/Drawing: drag for each box/)).toBeVisible();
+    const s = (await page.getByTestId('redact-surface').boundingBox())!;
+    for (const y of [140, 200, 260]) {
+      await page.mouse.move(s.x + 30, s.y + y);
+      await page.mouse.down();
+      await page.mouse.move(s.x + 150, s.y + y + 30, { steps: 4 });
+      await page.mouse.up();
+    }
+    await expect(page.locator('.rbox')).toHaveCount(4); // the preset plus three drawn without touching the button again
+    await expect(draw).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('Escape');
+    await expect(draw).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByText(/Drawing: drag for each box/)).toHaveCount(0);
+    // Dragging on empty photo no longer draws.
+    await page.mouse.move(s.x + 30, s.y + 320);
+    await page.mouse.down();
+    await page.mouse.move(s.x + 150, s.y + 350, { steps: 4 });
+    await page.mouse.up();
+    await expect(page.locator('.rbox')).toHaveCount(4);
+    // Moving to another photo ends it too.
+    await draw.click();
+    await expect(draw).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('ArrowRight');
+    await expect(draw).toHaveAttribute('aria-pressed', 'false');
   });
 });
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { capturePhoto, startCamera, stopCamera } from '../capture/camera';
-import { addFiles, onWipe } from '../state/session';
+import { addFiles, onWipe, session } from '../state/session';
 
 export function CameraScreen({ onDone }: { onDone: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -30,7 +30,7 @@ export function CameraScreen({ onDone }: { onDone: () => void }) {
     setBusy(true);
     try {
       const blob = await capturePhoto(streamRef.current, videoRef.current);
-      await addFiles([blob]);
+      await addFiles([blob], undefined, [`Camera photo ${++session.cameraShots}`]);
       setCount((c) => c + 1);
     } catch {
       setError('Could not take the photo.');

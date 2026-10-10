@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'preact/hooks';
-import { removeImage, select, session } from '../state/session';
+import { isSaved, removeImage, select, session } from '../state/session';
 
 export function Filmstrip() {
   const currentRef = useRef<HTMLButtonElement>(null);
@@ -20,6 +20,11 @@ export function Filmstrip() {
                   <span key={b.id} class="film-box" style={{ left: `${b.x * 100}%`, top: `${b.y * 100}%`, width: `${b.w * 100}%`, height: `${b.h * 100}%` }} />
                 ))}
               </span>
+              {isSaved(img) && (
+                <span class="film-saved" title="Saved">
+                  ⤓
+                </span>
+              )}
               <span class={`film-badge ${img.done ? 'done' : img.boxes.length ? 'todo' : 'none'}`}>{img.done ? '✓' : img.boxes.length ? i + 1 : '?'}</span>
             </button>
             {current && (

@@ -1,5 +1,5 @@
 import { ensureWrite, folderLabel, writeAtomic } from '../fs';
-import { changed, dropCanvas, type WorkImage } from '../state/session';
+import { changed, dropCanvas, shownPx, sigOf, type WorkImage } from '../state/session';
 import { ask } from '../ui/ConfirmDialog';
 import { problems, renderOne } from './batch';
 import type { ImageType } from './output';
@@ -8,6 +8,34 @@ export interface OverwriteReport {
   replaced: number;
   skipped: string[];
   failed: string[];
+}
+
+/** Whether the file on disk is still the one we opened. */
+export async function checkSource(t: WorkImage): Promise<'ok' | 'changed' | 'gone'> {
+  try {
+    const f = await t.source!.fileHandle.getFile();
+    return f.size !== t.source!.size || f.lastModified !== t.source!.lastModified ? 'changed' : 'ok';
+  } catch {
+    return 'gone';
+  }
+}
+
+/** Renders the photo (own format, full size) and replaces its original file; the photo on screen then matches the disk. */
+export async function writeOriginal(t: WorkImage): Promise<void> {
+  const src = t.source!;
+  const blob = await renderOne(t, { limit: false, full: true, format: src.mime as ImageType });
+  await writeAtomic(src.fileHandle, blob);
+  const f = await src.fileHandle.getFile();
+  src.size = f.size;
+  src.lastModified = f.lastModified;
+  const shown = shownPx(t);
+  t.blob = blob;
+  t.rotation = 0;
+  t.pxW = shown.w;
+  t.pxH = shown.h;
+  dropCanvas(t.id);
+  t.done = true;
+  t.savedSig = sigOf(t);
 }
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -58,12 +86,9 @@ export async function overwriteOriginals(images: WorkImage[], onProgress: (msg: 
   const stale: WorkImage[] = [];
   const gone: WorkImage[] = [];
   for (const t of targets) {
-    try {
-      const f = await t.source!.fileHandle.getFile();
-      if (f.size !== t.source!.size || f.lastModified !== t.source!.lastModified) stale.push(t);
-    } catch {
-      gone.push(t);
-    }
+    const state = await checkSource(t);
+    if (state === 'changed') stale.push(t);
+    else if (state === 'gone') gone.push(t);
   }
   gone.forEach((t) => skipped.push(`${label(t)}: the file is no longer there`));
   let toWrite = targets.filter((t) => !gone.includes(t));
@@ -91,18 +116,9 @@ export async function overwriteOriginals(images: WorkImage[], onProgress: (msg: 
   const failed: string[] = [];
   for (let i = 0; i < toWrite.length; i++) {
     const t = toWrite[i];
-    const src = t.source!;
     onProgress(`Replacing ${i + 1}/${toWrite.length}…`);
     try {
-      const blob = await renderOne(t, { limit: false, full: true, format: src.mime as ImageType });
-      await writeAtomic(src.fileHandle, blob);
-      const f = await src.fileHandle.getFile();
-      src.size = f.size;
-      src.lastModified = f.lastModified;
-      // The photo on screen now matches what is on disk.
-      t.blob = blob;
-      t.rotation = 0;
-      dropCanvas(t.id);
+      await writeOriginal(t);
       replaced++;
     } catch (e) {
       failed.push(`${label(t)}: ${errText(e)}`);

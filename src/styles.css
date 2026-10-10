@@ -1,5 +1,5 @@
 :root {
-  --frame-h: clamp(260px, calc(100vh - 290px), 70vh);
+  --frame-h: clamp(240px, calc(100vh - 340px), 70vh);
   --bg: #f1f5f9;
   --card: #ffffff;
   --text: #0f172a;
@@ -141,7 +141,7 @@ select { width: auto; }
 }
 
 @supports (height: 100dvh) {
-  :root { --frame-h: clamp(260px, calc(100dvh - 290px), 70vh); }
+  :root { --frame-h: clamp(240px, calc(100dvh - 340px), 70vh); }
 }
 
 /* Compact controls */
@@ -215,3 +215,11 @@ select { width: auto; }
 .modal[role='alertdialog'] { z-index: 40; align-items: center; }
 .menu-panel { max-height: 80vh; overflow-y: auto; }
 .replace-box { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 2px; }
+
+/* File bar under the photo */
+.filebar { display: flex; align-items: center; gap: 6px; }
+.filebar .btn { min-height: 34px; padding: 4px 10px; font-size: 0.9rem; flex: none; }
+.fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; color: var(--muted); }
+.photo-hint.top { top: 10px; transform: none; }
+.photo-hint.top { background: rgba(15, 23, 42, 0.85); width: fit-content; max-width: calc(100% - 24px); margin: 0 auto; border-radius: 999px; padding: 4px 12px; font-size: 0.8rem; }
+.film-saved { position: absolute; top: 4px; left: 4px; min-width: 18px; height: 18px; border-radius: 9px; background: #2563eb; color: #fff; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; font-weight: 700; }

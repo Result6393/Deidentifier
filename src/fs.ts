@@ -81,3 +81,19 @@ export async function writeAtomic(handle: FileHandleLike, blob: Blob): Promise<v
 
 /** A folder's name for messages: “Name”, or a plain phrase if the browser gives no name. */
 export const folderLabel = (name: string) => (name ? `“${name}”` : 'the chosen folder');
+
+interface SavePickerWindow {
+  showSaveFilePicker?: (opts: { suggestedName: string; types: { description: string; accept: Record<string, string[]> }[] }) => Promise<FileHandleLike>;
+}
+
+export const hasSavePicker = () => typeof (window as SavePickerWindow).showSaveFilePicker === 'function';
+
+/** Native "Save as" dialog; resolves null if the user cancels. Must be called straight from a click. */
+export async function pickSaveFile(suggestedName: string, mime: string, ext: string): Promise<FileHandleLike | null> {
+  try {
+    return await (window as SavePickerWindow).showSaveFilePicker!({ suggestedName, types: [{ description: 'Image', accept: { [mime]: [`.${ext}`] } }] });
+  } catch (e) {
+    if (isAbort(e)) return null;
+    throw e;
+  }
+}
