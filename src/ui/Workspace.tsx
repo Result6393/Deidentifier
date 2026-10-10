@@ -28,7 +28,7 @@ const STAMPS = ['RE', 'LE', 'OD', 'OS', 'OU'];
 
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
 
-export function Workspace({ onImport, onCamera }: { onImport: () => void; onCamera: () => void }) {
+export function Workspace({ onImport, onCamera, onImportFolder }: { onImport: () => void; onCamera: () => void; onImportFolder?: () => void }) {
   const img = currentImage();
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -109,6 +109,11 @@ export function Workspace({ onImport, onCamera }: { onImport: () => void; onCame
           <button class="btn big" onClick={onCamera}>
             Take photo
           </button>
+          {onImportFolder && (
+            <button class="btn big" onClick={onImportFolder} title="Open every photo in a folder so the originals can be replaced after redaction">
+              Import folder…
+            </button>
+          )}
         </div>
         <p class="muted small">You can also drop photos onto this page, or share them to Deidentifier from your gallery on Android.</p>
       </div>

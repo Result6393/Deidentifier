@@ -1,6 +1,17 @@
 import { presetBoxes, startingPreset } from '../presets/templates';
 import { makeBox, rotateRect90 } from '../editor/boxes';
+import type { DirHandleLike, FileHandleLike } from '../fs';
 import type { Box, DocType } from '../types';
+
+/** Where a photo came from on disk, kept only in memory so it can be replaced after redaction. */
+export interface SourceFile {
+  fileHandle: FileHandleLike;
+  dirHandle: DirHandleLike;
+  name: string;
+  size: number;
+  lastModified: number;
+  mime: string;
+}
 
 export interface WorkImage {
   id: string;
@@ -21,6 +32,8 @@ export interface WorkImage {
   /** True once the user has moved, drawn, deleted or stamped a box. */
   edited: boolean;
   done: boolean;
+  /** Set when imported from a folder: the file can be overwritten. */
+  source?: SourceFile;
 }
 
 interface SessionState {
@@ -192,12 +205,13 @@ export function removeImage(id: string): void {
 }
 
 /** Opens photos one at a time so the first is editable straight away. */
-export async function addFiles(files: Blob[]): Promise<number> {
+export async function addFiles(files: Blob[], sources?: (SourceFile | undefined)[]): Promise<number> {
   let failed = 0;
   const epoch = wipeCount;
   session.importing = { done: 0, total: files.length };
   changed();
-  for (const blob of files) {
+  for (let n = 0; n < files.length; n++) {
+    const blob = files[n];
     try {
       const canvas = await decodeImage(blob, 0, VIEW_EDGE);
       if (epoch !== wipeCount) {
@@ -205,7 +219,7 @@ export async function addFiles(files: Blob[]): Promise<number> {
         zeroCanvas(canvas);
         return failed;
       }
-      const img: WorkImage = { id: newId(), blob, thumb: makeThumb(canvas), aspect: canvas.width / canvas.height, thumbRot: 0, rotation: 0, type: null, presetId: null, boxes: [], edited: false, done: false };
+      const img: WorkImage = { id: newId(), blob, thumb: makeThumb(canvas), aspect: canvas.width / canvas.height, thumbRot: 0, rotation: 0, type: null, presetId: null, boxes: [], edited: false, done: false, source: sources?.[n] };
       cache.set(img.id, Promise.resolve(canvas));
       session.images.push(img);
       session.currentId ??= img.id;

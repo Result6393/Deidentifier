@@ -410,6 +410,285 @@ test.afterAll(() => {
   writeFileSync('test-results/.keep', '');
 });
 
+// --- Replacing originals and not overwriting by accident ----------------------------------------
+// Chromium's origin-private file system gives real FileSystemDirectoryHandles, so the real
+// read / replace / atomic-write code runs. Only the native folder picker is stood in for.
+test.describe('files on disk', () => {
+  type Seed = { name: string; from?: string; as?: string; text?: string };
+
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker = () => navigator.storage.getDirectory();
+    });
+    await page.goto('/');
+  });
+
+  async function seed(page: Page, files: Seed[]) {
+    const prepared = files.map((f) => ({ name: f.name, as: f.as, text: f.text, b64: f.from ? readFileSync(f.from).toString('base64') : null }));
+    await page.evaluate(async (list) => {
+      const root = await navigator.storage.getDirectory();
+      for (const f of list) {
+        let blob: Blob;
+        if (f.b64) {
+          const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0))]));
+          const c = new OffscreenCanvas(bmp.width, bmp.height);
+          c.getContext('2d')!.drawImage(bmp, 0, 0);
+          blob = await c.convertToBlob({ type: f.as ?? 'image/png', quality: 0.9 });
+        } else blob = new Blob([f.text ?? '']);
+        const w = await (await root.getFileHandle(f.name, { create: true })).createWritable();
+        await w.write(blob);
+        await w.close();
+      }
+    }, prepared);
+  }
+
+  /** Name → size, first bytes and a content hash, for everything in the folder. */
+  async function disk(page: Page) {
+    return page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      const out: Record<string, { size: number; magic: string; hash: string }> = {};
+      for await (const [name, h] of (root as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+        const f = await (h as FileSystemFileHandle).getFile();
+        const buf = await f.arrayBuffer();
+        const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buf))).map((b) => b.toString(16).padStart(2, '0')).join('');
+        out[name] = { size: f.size, magic: Array.from(new Uint8Array(buf.slice(0, 4))).map((b) => b.toString(16).padStart(2, '0')).join(''), hash };
+      }
+      return out;
+    });
+  }
+
+  async function pixels(page: Page, name: string, points: [number, number][]) {
+    return page.evaluate(
+      async ({ name, points }) => {
+        const root = await navigator.storage.getDirectory();
+        const bmp = await createImageBitmap(await (await root.getFileHandle(name)).getFile());
+        const c = new OffscreenCanvas(bmp.width, bmp.height);
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(bmp, 0, 0);
+        return points.map(([x, y]) => Array.from(ctx.getImageData(Math.round(x * bmp.width), Math.round(y * bmp.height), 1, 1).data.slice(0, 3)));
+      },
+      { name, points },
+    );
+  }
+
+  const importFolder = async (page: Page) => {
+    await page.getByTestId('app-menu').click();
+    await page.getByTestId('import-folder').click();
+  };
+
+  const threeOnDisk = (): Seed[] => [
+    { name: 'a-notes.jpg', from: fixtures.notes, as: 'image/jpeg' },
+    { name: 'b-cirrus.png', from: fixtures.cirrus, as: 'image/png' },
+    { name: 'c-optos.webp', from: fixtures.optos2, as: 'image/webp' },
+  ];
+
+  /** Opens the Export menu unless it is already open. */
+  async function openExport(page: Page) {
+    if (!(await page.getByTestId('export-zip').isVisible())) await page.getByTestId('export-menu').click();
+  }
+
+  /** Opens the Export menu, starts "Overwrite originals" and answers the confirmation. */
+  async function overwrite(page: Page, answer: 'go' | 'cancel') {
+    await openExport(page);
+    await page.getByTestId('export-overwrite').click();
+    await expect(page.getByTestId('dialog')).toBeVisible();
+    if (answer === 'go') {
+      await expect(page.getByTestId('dialog-go')).toBeDisabled();
+      await page.getByTestId('dialog-tick').check();
+      await page.getByTestId('dialog-go').click();
+    } else await page.getByTestId('dialog-cancel').click();
+  }
+
+  test('import a folder, then replace the originals: same names, same formats, boxes burnt in', async ({ page }) => {
+    await seed(page, [...threeOnDisk(), { name: 'notes.txt', text: 'not a photo' }, { name: 'scan.heic', text: 'pretend heic' }]);
+    const before = await disk(page);
+    await importFolder(page);
+    await expect(page.locator('.film')).toHaveCount(3);
+    await expect(page.getByText(/Opened 3 photos/)).toBeVisible();
+    await expect(page.getByText(/1 other image file \(e\.g\. HEIC\) was ignored/)).toBeVisible();
+    // Type and mark done in filename order: notes, cirrus, optos pair.
+    await type(page, 'notes');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowRight');
+    await type(page, 'cirrus');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowRight');
+    await type(page, 'optos2');
+    await page.keyboard.press('Enter');
+
+    await overwrite(page, 'go');
+    await expect(page.getByText('Replaced 3 originals.')).toBeVisible();
+
+    const after = await disk(page);
+    expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort()); // no new files, none removed
+    expect(after['a-notes.jpg'].magic.startsWith('ffd8ff')).toBe(true);
+    expect(after['b-cirrus.png'].magic).toBe('89504e47');
+    expect(after['c-optos.webp'].magic).toBe('52494646');
+    for (const n of ['a-notes.jpg', 'b-cirrus.png', 'c-optos.webp']) expect(after[n].hash).not.toBe(before[n].hash);
+    // Files that weren't photos we could replace are untouched.
+    expect(after['notes.txt']).toEqual(before['notes.txt']);
+    expect(after['scan.heic']).toEqual(before['scan.heic']);
+    // Full size is kept (not shrunk to 2000 px) and the identifiers are black.
+    for (const rgb of await pixels(page, 'a-notes.jpg', [[0.75, 0.08], [0.9, 0.15]])) expect(Math.max(...rgb)).toBeLessThan(25);
+    for (const rgb of await pixels(page, 'b-cirrus.png', [[0.1, 0.03], [0.1, 0.07]])) expect(Math.max(...rgb)).toBeLessThan(25);
+    for (const rgb of await pixels(page, 'c-optos.webp', [[0.5, 0.03], [0.05, 0.12]])) expect(Math.max(...rgb)).toBeLessThan(25);
+    // The photo on screen still opens after its file was replaced.
+    await expect(page.getByTestId('count')).toHaveText('3 / 3');
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.locator('canvas.display.full')).toBeVisible();
+  });
+
+  test('cancelling the confirmation, or pressing Esc, leaves every original byte-identical', async ({ page }) => {
+    await seed(page, threeOnDisk());
+    const before = await disk(page);
+    await importFolder(page);
+    await expect(page.locator('.film')).toHaveCount(3);
+    await type(page, 'notes');
+    await overwrite(page, 'cancel');
+    await expect(page.getByTestId('dialog')).toHaveCount(0);
+    expect(await disk(page)).toEqual(before);
+    // Esc also cancels.
+    await page.getByTestId('export-overwrite').click();
+    await expect(page.getByTestId('dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('dialog')).toHaveCount(0);
+    expect(await disk(page)).toEqual(before);
+  });
+
+  test('the confirmation names the files, warns about missing boxes, and defaults to Cancel', async ({ page }) => {
+    await seed(page, threeOnDisk());
+    await importFolder(page);
+    await expect(page.locator('.film')).toHaveCount(3);
+    await page.getByTestId('export-menu').click();
+    await page.getByTestId('export-overwrite').click();
+    const dialog = page.getByTestId('dialog');
+    await expect(dialog).toContainText('permanently replaces 3 original photos');
+    await expect(dialog).toContainText('cannot get them back'.replace('cannot', 'cannot'));
+    await expect(dialog).toContainText('a-notes.jpg');
+    await expect(dialog).toContainText('c-optos.webp');
+    await expect(dialog).toContainText('No black boxes on images 1, 2, 3');
+    await expect(page.getByTestId('dialog-cancel')).toBeFocused();
+  });
+
+  test('photos not opened from a folder are never touched, and are called out', async ({ page }) => {
+    await seed(page, [{ name: 'a.jpg', from: fixtures.notes, as: 'image/jpeg' }, { name: 'b.png', from: fixtures.cirrus, as: 'image/png' }]);
+    await page.getByTestId('file-input').setInputFiles(fixtures.optos2);
+    await expect(page.locator('.film')).toHaveCount(1);
+    // Only a normal import: no overwrite option, just an explanation.
+    await page.getByTestId('export-menu').click();
+    await expect(page.getByTestId('export-overwrite')).toHaveCount(0);
+    await expect(page.getByTestId('overwrite-hint')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.getByTestId('export-menu').click();
+    await importFolder(page);
+    await expect(page.locator('.film')).toHaveCount(3);
+    await page.getByTestId('export-menu').click();
+    await expect(page.getByTestId('export-overwrite')).toContainText('2 of 3');
+    await page.getByTestId('export-overwrite').click();
+    await expect(page.getByTestId('dialog')).toContainText('1 other photo was not imported from a folder and will not be changed');
+    await page.getByTestId('dialog-cancel').click();
+  });
+
+  test('a file edited on disk since import is flagged; Skip keeps it, Cancel stops everything', async ({ page }) => {
+    await seed(page, [{ name: 'a.jpg', from: fixtures.notes, as: 'image/jpeg' }, { name: 'b.png', from: fixtures.cirrus, as: 'image/png' }]);
+    await importFolder(page);
+    await expect(page.locator('.film')).toHaveCount(2);
+    await type(page, 'notes');
+    await page.keyboard.press('ArrowRight');
+    await type(page, 'cirrus');
+    // Someone else changes b.png after it was opened.
+    await seed(page, [{ name: 'b.png', text: 'edited elsewhere, longer than before' }]);
+    const edited = await disk(page);
+
+    // Cancel everything: nothing at all is written.
+    await overwrite(page, 'go');
+    await expect(page.getByTestId('dialog')).toContainText('1 file has changed since you opened it');
+    await expect(page.getByTestId('dialog')).toContainText('b.png');
+    await expect(page.getByTestId('dialog-skip')).toBeFocused();
+    await page.getByTestId('dialog-cancel').click();
+    expect(await disk(page)).toEqual(edited);
+
+    // Skip: a.jpg is replaced, b.png keeps the newer content.
+    await overwrite(page, 'go');
+    await page.getByTestId('dialog-skip').click();
+    await expect(page.getByText(/Replaced 1 original\./)).toBeVisible();
+    await expect(page.getByText(/Skipped 1: b\.png: changed on disk since import/)).toBeVisible();
+    const after = await disk(page);
+    expect(after['b.png']).toEqual(edited['b.png']);
+    expect(after['a.jpg'].hash).not.toBe(edited['a.jpg'].hash);
+  });
+
+  test('saving into a folder that already has files of that name asks first', async ({ page }) => {
+    const old = { name: 'case-image-001.jpg', text: 'OLD FILE FROM LAST TIME' };
+    await seed(page, [old]);
+    const before = await disk(page);
+    await page.getByTestId('file-input').setInputFiles([fixtures.notes, fixtures.cirrus]);
+    await expect(page.locator('.film')).toHaveCount(2);
+    await type(page, 'notes');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowRight');
+    await type(page, 'cirrus');
+    await page.keyboard.press('Enter');
+    const save = async (clashing = 1) => {
+      await openExport(page);
+      await page.getByRole('button', { name: 'Save to a folder…' }).click();
+      await expect(page.getByTestId('dialog')).toContainText(`${clashing} of 2 files already exist`);
+      await expect(page.getByTestId('dialog')).toContainText('case-image-001.jpg');
+      await expect(page.getByTestId('dialog-cancel')).toBeFocused();
+    };
+
+    // Cancel: nothing is written.
+    await save();
+    await page.getByTestId('dialog-cancel').click();
+    expect(await disk(page)).toEqual(before);
+
+    // Keep both: the old file is untouched, new ones get free names.
+    await save();
+    await page.getByTestId('dialog-keep').click();
+    await expect(page.getByText('Exported 2 images.')).toBeVisible();
+    const kept = await disk(page);
+    expect(Object.keys(kept).sort()).toEqual(['case-image-001 (2).jpg', 'case-image-001.jpg', 'case-image-002.jpg']);
+    expect(kept['case-image-001.jpg']).toEqual(before['case-image-001.jpg']);
+    expect(kept['case-image-001 (2).jpg'].magic.startsWith('ffd8ff')).toBe(true);
+
+    // Replace: the old file really is overwritten (now both names exist, so both are listed).
+    await save(2);
+    await page.getByTestId('dialog-replace').click();
+    await expect(page.getByText('Exported 2 images.').first()).toBeVisible();
+    const replaced = await disk(page);
+    expect(replaced['case-image-001.jpg'].hash).not.toBe(before['case-image-001.jpg'].hash);
+    expect(replaced['case-image-001.jpg'].magic.startsWith('ffd8ff')).toBe(true);
+  });
+
+  test('saving into a folder with no clashes does not ask anything', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles([fixtures.notes, fixtures.cirrus]);
+    await expect(page.locator('.film')).toHaveCount(2);
+    await type(page, 'notes');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowRight');
+    await type(page, 'cirrus');
+    await page.keyboard.press('Enter');
+    await page.getByTestId('export-menu').click();
+    await page.getByRole('button', { name: 'Save to a folder…' }).click();
+    await expect(page.getByText('Exported 2 images.')).toBeVisible();
+    await expect(page.getByTestId('dialog')).toHaveCount(0);
+    expect(Object.keys(await disk(page)).sort()).toEqual(['case-image-001.jpg', 'case-image-002.jpg']);
+  });
+
+  test('ending the session forgets the folder handles', async ({ page }) => {
+    await seed(page, threeOnDisk());
+    await importFolder(page);
+    await expect(page.locator('.film')).toHaveCount(3);
+    page.once('dialog', (d) => d.accept());
+    await page.getByTestId('app-menu').click();
+    await page.getByRole('button', { name: 'End session' }).click();
+    await expect(page.locator('.film')).toHaveCount(0);
+    const stored = await page.evaluate(async () => ({ ls: Object.keys(localStorage), dbs: (await indexedDB.databases()).map((d) => d.name) }));
+    expect(stored.ls).toEqual([]);
+    expect(stored.dbs).toEqual([]);
+  });
+});
+
 test.describe('touch', () => {
   test.use({ hasTouch: true, viewport: { width: 420, height: 800 } });
 

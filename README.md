@@ -24,6 +24,23 @@ Keys: ← / → previous / next, Enter done, Delete removes the selected box, Es
 
 Exports are re-encoded from scratch. They have solid black boxes (never blur), no EXIF or GPS metadata, and generic names (`case-image-001.jpg`…). The ZIP carries no timestamps or original file names.
 
+## Replacing the originals (desktop Chrome or Edge only)
+
+By default every export makes **new** files and your originals stay where they are. To replace the originals with the redacted versions instead:
+
+1. On a computer with Chrome or Edge, open the top **⋯** menu (or the first screen) and choose **Import folder…**. Pick the folder that holds the photos (Chrome refuses to open Downloads, Documents or Desktop themselves, but a subfolder of them is fine). The browser asks once for permission to change files in that folder.
+2. Redact the photos as usual, then **Export → Overwrite originals…**. Each file keeps its **own name, format (JPEG/PNG/WebP) and full size**.
+
+Why a folder, and why only a computer? A web page can only write back to a file when the browser has given it a handle to that file. Choosing a folder gives one permission prompt for the whole batch, while picking files one by one would ask once per file. Phones don't offer this at all, and photos opened with Import, Camera or the Android share sheet can't be replaced. On a phone, delete the originals from the gallery yourself. HEIC/AVIF/GIF files in the folder are skipped because the browser can't save them back in the same format.
+
+The app asks before it can destroy anything:
+- **A firm confirmation** first: how many files, in which folder, a note that the unredacted originals are gone for good, any "no boxes" or "not marked done" warnings, and a tick box you must tick before the button works. **Cancel** is selected by default.
+- **A changed-on-disk check.** If a file was edited or swapped since you opened it, you're told which, and can skip those files, overwrite anyway, or cancel everything.
+- **Safe writes.** Each file is written to a temporary copy that replaces the original only when complete, so a failure never leaves half a photo.
+- **Saving new files into a folder** (**Export → Save to a folder…**) also checks first. If files of the same name already exist (for example `case-image-001.jpg` from last time) you can **Cancel**, **Keep both** (the new ones get names like `case-image-001 (2).jpg`), or **Replace existing**. ZIP and separate downloads go to your downloads folder, where the browser itself renames duplicates and never overwrites.
+
+Nothing about the folder or files is stored: the handles live in memory and are dropped when you end the session or close the app.
+
 ## Limits: your review is the final safeguard
 
 - **There is no automatic detection.** The app only covers the areas you see boxed. It does not read the image, so it cannot tell you if something identifying is left outside a box (a name in a letter body, handwriting, a second sticker, a reflection). Check every image before exporting.

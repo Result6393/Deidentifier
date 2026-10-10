@@ -1,8 +1,11 @@
 import { useState } from 'preact/hooks';
 import { problems, renderBatch } from '../export/batch';
-import { canSaveToFolder, canShareFiles, downloadAll, downloadBlob, pickFolder, shareFiles, writeToFolder, type Format, type NamedBlob } from '../export/output';
+import { canSaveToFolder, canShareFiles, downloadAll, downloadBlob, exportName, shareFiles, writeToFolder, type Format, type NamedBlob } from '../export/output';
+import { overwriteOriginals } from '../export/overwrite';
+import { folderLabel, freeName, listNames, pickFolder } from '../fs';
 import { makeZip } from '../export/zip';
 import { session } from '../state/session';
+import { ask } from './ConfirmDialog';
 
 type Kind = 'zip' | 'folder' | 'files' | 'share';
 
@@ -23,10 +26,41 @@ export function ExportMenu() {
     if (issues.length && !confirm(`${issues.join('\n')}\n\nExport all ${total} images anyway?`)) return;
     try {
       // Folder access needs a fresh click, so ask for it before the slow rendering.
-      const dir = kind === 'folder' ? await pickFolder() : null;
+      const dir = kind === 'folder' ? await pickFolder('readwrite') : null;
       if (kind === 'folder' && !dir) return;
+      // Never replace files in the chosen folder without saying so.
+      let taken = new Set<string>();
+      let keepBoth = false;
+      if (dir) {
+        taken = await listNames(dir);
+        const names = session.images.map((_, i) => exportName(i, format));
+        const clash = names.filter((nm) => taken.has(nm));
+        if (clash.length) {
+          const c = await ask({
+            title: `${clash.length} of ${names.length} files already exist in ${folderLabel(dir.name)}`,
+            body: 'Replace existing overwrites those files permanently. Keep both saves the new images under new names and leaves the existing files untouched.',
+            details: clash,
+            choices: [
+              { id: 'cancel', label: 'Cancel' },
+              { id: 'keep', label: 'Keep both', kind: 'primary' },
+              { id: 'replace', label: 'Replace existing', kind: 'danger' },
+            ],
+            focus: 'cancel',
+          });
+          if (c === 'cancel') return;
+          keepBoth = c === 'keep';
+        }
+      }
       setBusy(`Rendering 0/${total}…`);
-      const files = await renderBatch(session.images, { limit, format }, (n) => setBusy(`Rendering ${n}/${total}…`));
+      let files = await renderBatch(session.images, { limit, format }, (n) => setBusy(`Rendering ${n}/${total}…`));
+      if (dir && keepBoth) {
+        const used = new Set(taken);
+        files = files.map((f) => {
+          const name = freeName(f.name, used);
+          used.add(name);
+          return { ...f, name };
+        });
+      }
       if (kind === 'zip') downloadBlob(await makeZip(files), 'case-images.zip');
       else if (kind === 'folder') await writeToFolder(dir!, files);
       else if (kind === 'files') await downloadAll(files);
@@ -36,6 +70,25 @@ export function ExportMenu() {
         return;
       }
       setMessage(`Exported ${files.length} image${files.length > 1 ? 's' : ''}.`);
+    } catch (e) {
+      setMessage(`Export failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const withSource = session.images.filter((i) => i.source).length;
+
+  const runOverwrite = async () => {
+    setMessage(null);
+    setReady(null);
+    try {
+      const r = await overwriteOriginals(session.images, (m) => setBusy(m));
+      if (!r) return;
+      const parts = [`Replaced ${r.replaced} original${r.replaced === 1 ? '' : 's'}.`];
+      if (r.skipped.length) parts.push(`Skipped ${r.skipped.length}: ${r.skipped.join('; ')}.`);
+      if (r.failed.length) parts.push(`Failed ${r.failed.length}: ${r.failed.join('; ')}.`);
+      setMessage((r.failed.length ? 'Export failed: ' : '') + parts.join(' '));
     } catch (e) {
       setMessage(`Export failed: ${(e as Error).message}`);
     } finally {
@@ -85,6 +138,23 @@ export function ExportMenu() {
           <button class="btn" disabled={!!busy} onClick={() => run('files')} data-testid="export-files">
             Download as separate files
           </button>
+          {withSource > 0 && (
+            <div class="stack replace-box">
+              <button class="btn danger" disabled={!!busy} onClick={runOverwrite} data-testid="export-overwrite">
+                Overwrite originals ({withSource}
+                {withSource < total ? ` of ${total}` : ''})…
+              </button>
+              <p class="menu-note small">
+                Replaces the files you opened with their redacted versions, keeping each photo’s own format and size.
+                {withSource < total ? ' Photos not opened from a folder are left alone.' : ''}
+              </p>
+            </div>
+          )}
+          {withSource === 0 && (
+            <p class="menu-note small" data-testid="overwrite-hint">
+              To replace originals instead of saving new files, use Chrome or Edge on a computer and open them with ⋯ → Import folder. Not possible on phones.
+            </p>
+          )}
           {ready && (
             <button class="btn primary" onClick={share}>
               Ready: share {ready.length} image{ready.length > 1 ? 's' : ''}

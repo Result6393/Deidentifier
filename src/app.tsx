@@ -6,6 +6,9 @@ import { OverflowMenu } from './ui/OverflowMenu';
 import { CameraScreen } from './ui/Camera';
 import { ExportMenu } from './ui/ExportMenu';
 import { Workspace } from './ui/Workspace';
+import { DialogHost } from './ui/ConfirmDialog';
+import { importFolder } from './capture/folder';
+import { folderLabel, hasFolderPicker } from './fs';
 
 const IDLE_MS = 10 * 60 * 1000;
 
@@ -77,6 +80,26 @@ export function App() {
     void collectSharedFiles().then((files) => importFiles(files));
   }, []);
 
+  const importFolderNow = async () => {
+    try {
+      const r = await importFolder();
+      if (!r) return;
+      const parts = r.opened
+        ? [`Opened ${r.opened} photo${r.opened > 1 ? 's' : ''} from ${folderLabel(r.folder)}. They can be overwritten from the Export menu.`]
+        : [`No JPEG, PNG or WebP photos found in ${folderLabel(r.folder)}.`];
+      if (r.ignored) parts.push(`${r.ignored} other image file${r.ignored > 1 ? 's' : ''} (e.g. HEIC) ${r.ignored > 1 ? 'were' : 'was'} ignored because ${r.ignored > 1 ? 'they' : 'it'} can't be replaced in ${r.ignored > 1 ? 'their' : 'its'} own format.`);
+      if (r.failed) parts.push(`${r.failed} file${r.failed > 1 ? 's' : ''} could not be opened as an image.`);
+      setNotice(parts.join(' '));
+    } catch (e) {
+      const name = (e as DOMException)?.name;
+      setNotice(
+        name === 'SecurityError'
+          ? 'Chrome would not open that folder. It blocks Downloads, Documents and Desktop themselves and system folders. Pick a subfolder instead.'
+          : `Could not open the folder: ${(e as Error).message}`,
+      );
+    }
+  };
+
   const endSession = () => {
     if (session.images.length && !confirm('End session? All photos and boxes in this session will be deleted from memory.')) return;
     wipe();
@@ -112,6 +135,18 @@ export function App() {
                 {offlineText(offline)}
               </p>
               <p class="menu-note">Version {__APP_VERSION__}</p>
+              {hasFolderPicker() && (
+                <button
+                  class="menu-item"
+                  data-testid="import-folder"
+                  onClick={() => {
+                    close();
+                    void importFolderNow();
+                  }}
+                >
+                  Import folder… (can overwrite originals)
+                </button>
+              )}
               {hasImages && (
                 <button
                   class="menu-item danger"
@@ -155,7 +190,8 @@ export function App() {
           </button>
         </div>
       )}
-      <main>{camera ? <CameraScreen onDone={() => setCamera(false)} /> : <Workspace onImport={() => fileRef.current?.click()} onCamera={() => setCamera(true)} />}</main>
+      <main>{camera ? <CameraScreen onDone={() => setCamera(false)} /> : <Workspace onImport={() => fileRef.current?.click()} onCamera={() => setCamera(true)} onImportFolder={hasFolderPicker() ? () => void importFolderNow() : undefined} />}</main>
+      <DialogHost />
       {dragOver && <div class="dropzone">Drop photos to import</div>}
     </div>
   );
