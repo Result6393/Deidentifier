@@ -38,6 +38,8 @@ export interface WorkImage {
   modified?: boolean;
   /** The user deliberately removed the type, so don't carry the last-used type onto this photo. */
   noType?: boolean;
+  /** Base for "Save" file names when the shown name isn't a plain file name (e.g. "notes p3" for a PDF page). */
+  saveStem?: string;
   /** File name shown in the file bar: the imported file's name, or "Camera photo N". */
   name: string;
   /** The photo's real pixel size (before rotation), so zoom levels can be real percentages. */
@@ -277,7 +279,7 @@ export function removeImage(id: string): void {
 }
 
 /** Opens photos one at a time so the first is editable straight away. */
-export async function addFiles(files: Blob[], sources?: (SourceFile | undefined)[], names?: string[]): Promise<number> {
+export async function addFiles(files: Blob[], sources?: (SourceFile | undefined)[], names?: string[], stems?: string[]): Promise<number> {
   let failed = 0;
   const epoch = wipeCount;
   session.importing = { done: 0, total: files.length };
@@ -291,7 +293,7 @@ export async function addFiles(files: Blob[], sources?: (SourceFile | undefined)
         zeroCanvas(canvas);
         return failed;
       }
-      const img: WorkImage = { id: newId(), blob, thumb: makeThumb(canvas), aspect: canvas.width / canvas.height, thumbRot: 0, rotation: 0, type: null, presetId: null, boxes: [], edited: false, done: false, source: sources?.[n], name: names?.[n] ?? sources?.[n]?.name ?? (blob as File).name ?? `Photo ${session.images.length + 1}`, pxW: srcW, pxH: srcH };
+      const img: WorkImage = { id: newId(), blob, thumb: makeThumb(canvas), aspect: canvas.width / canvas.height, thumbRot: 0, rotation: 0, type: null, presetId: null, boxes: [], edited: false, done: false, source: sources?.[n], name: names?.[n] ?? sources?.[n]?.name ?? (blob as File).name ?? `Photo ${session.images.length + 1}`, pxW: srcW, pxH: srcH, saveStem: stems?.[n] };
       cache.set(img.id, Promise.resolve(canvas));
       session.images.push(img);
       session.currentId ??= img.id;
@@ -308,6 +310,8 @@ export async function addFiles(files: Blob[], sources?: (SourceFile | undefined)
 }
 
 let wipeCount = 0;
+/** Changes every time the session is wiped, so slow imports can tell they are no longer wanted. */
+export const wipeEpoch = () => wipeCount;
 const wipeHooks = new Set<() => void>();
 /** Registers extra cleanup (e.g. stopping the camera) to run on wipe. */
 export const onWipe = (fn: () => void) => {

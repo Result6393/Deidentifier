@@ -4,3 +4,4 @@ tests/fixtures/generated/
 test-results/
 playwright-report/
 *.log
+public/vendor/

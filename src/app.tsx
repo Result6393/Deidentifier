@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from 'preact/hooks';
 import { addFiles, session, subscribe, wipe } from './state/session';
+import { addPdf, isPdf, PdfError } from './capture/pdf';
 import { collectSharedFiles } from './capture/shareTarget';
 import { offlineText, useOfflineStatus } from './ui/OfflineBadge';
 import { OverflowMenu } from './ui/OverflowMenu';
@@ -14,9 +15,13 @@ const IDLE_MS = 10 * 60 * 1000;
 
 const isImage = (f: File) => f.type.startsWith('image/');
 
+const PDF_NOTE = 'PDF pages open as images. Handwriting is not detected, so box anything identifying on every page yourself.';
+let pdfNoteShown = false;
+
 export function App() {
   const [camera, setCamera] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pdfStatus, setPdfStatus] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -25,11 +30,42 @@ export function App() {
   useEffect(() => subscribe(() => rerender(0)), []);
 
   const importFiles = async (files: File[]) => {
-    const images = files.filter(isImage);
-    if (!images.length) return;
-    const failed = await addFiles(images);
-    if (failed) setNotice(`${failed} file${failed > 1 ? 's' : ''} could not be opened as an image.`);
+    const usable = files.filter((f) => isImage(f) || isPdf(f));
+    if (!usable.length) return;
+    let failed = 0;
+    let sawPdf = false;
+    const problems: string[] = [];
+    // Keep the order the files were chosen in: runs of photos go in together, each PDF as its pages.
+    let run: File[] = [];
+    const flush = async () => {
+      if (run.length) failed += await addFiles(run);
+      run = [];
+    };
+    for (const f of usable) {
+      if (!isPdf(f)) {
+        run.push(f);
+        continue;
+      }
+      await flush();
+      sawPdf = true;
+      const name = f.name || 'document.pdf';
+      try {
+        await addPdf(f, name, (i, n) => setPdfStatus(`Opening ${name}: page ${i} of ${n}…`));
+      } catch (e) {
+        problems.push(e instanceof PdfError ? e.message : `Couldn't open “${name}”.`);
+      } finally {
+        setPdfStatus(null);
+      }
+    }
+    await flush();
+    if (failed) problems.push(`${failed} file${failed > 1 ? 's' : ''} could not be opened as an image.`);
+    if (sawPdf && !pdfNoteShown) {
+      pdfNoteShown = true;
+      problems.push(PDF_NOTE);
+    }
+    if (problems.length) setNotice(problems.join(' '));
   };
+
 
   useEffect(() => {
     // Wipe automatically after inactivity, and whenever the page is closed.
@@ -82,16 +118,26 @@ export function App() {
 
   const importFolderNow = async () => {
     try {
-      const r = await importFolder();
+      const r = await importFolder((name, i, n) => setPdfStatus(`Opening ${name}: page ${i} of ${n}…`));
+      setPdfStatus(null);
       if (!r) return;
       const parts = r.opened
         ? [`Opened ${r.opened} photo${r.opened > 1 ? 's' : ''} from ${folderLabel(r.folder)}. They can be overwritten from the Export menu.`]
-        : [`No JPEG, PNG or WebP photos found in ${folderLabel(r.folder)}.`];
+        : r.pdfs
+          ? []
+          : [`No JPEG, PNG, WebP or PDF files found in ${folderLabel(r.folder)}.`];
+      if (r.pdfPages) parts.push(`Opened ${r.pdfPages} page${r.pdfPages > 1 ? 's' : ''} from ${r.pdfs} PDF${r.pdfs > 1 ? 's' : ''}; PDF pages save as new files and never replace the PDF.`);
+      parts.push(...r.problems);
+      if (r.pdfs && !pdfNoteShown) {
+        pdfNoteShown = true;
+        parts.push(PDF_NOTE);
+      }
       if (r.ignored) parts.push(`${r.ignored} other image file${r.ignored > 1 ? 's' : ''} (e.g. HEIC) ${r.ignored > 1 ? 'were' : 'was'} ignored because ${r.ignored > 1 ? 'they' : 'it'} can't be replaced in ${r.ignored > 1 ? 'their' : 'its'} own format.`);
       if (r.failed) parts.push(`${r.failed} file${r.failed > 1 ? 's' : ''} could not be opened as an image.`);
       setNotice(parts.join(' '));
     } catch (e) {
       const name = (e as DOMException)?.name;
+      setPdfStatus(null);
       setNotice(
         name === 'SecurityError'
           ? 'Chrome would not open that folder. It blocks Downloads, Documents and Desktop themselves and system folders. Pick a subfolder instead.'
@@ -164,7 +210,7 @@ export function App() {
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
+          accept="image/*,application/pdf,.pdf"
           multiple
           hidden
           data-testid="file-input"
@@ -177,6 +223,11 @@ export function App() {
           }}
         />
       </header>
+      {pdfStatus && (
+        <div class="notice" role="status" data-testid="pdf-status">
+          {pdfStatus}
+        </div>
+      )}
       {session.importing && (
         <div class="notice" role="status">
           Opening photos… {session.importing.done}/{session.importing.total}

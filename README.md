@@ -8,7 +8,7 @@ Covers patient identifiers on photos of clinical material (paper notes, Optos, C
 
 ## Using it
 
-1. **Import** a batch (select many photos, drag them onto the page, or share them to *Deidentifier* from the Android gallery), or use **Camera**. The in-app camera keeps originals out of your gallery. Imported photos stay in your gallery or downloads, so delete those originals yourself.
+1. **Import** a batch (select many photos or scanned PDFs, drag them onto the page, or share them to *Deidentifier* from the Android gallery), or use **Camera**. The in-app camera keeps originals out of your gallery. Imported photos stay in your gallery or downloads, so delete those originals yourself.
 2. **Tap a type** (Notes, Optos 1, Optos 2, Cirrus, Other). The preset black boxes appear immediately. The last type you used is applied automatically to the next photo you open, so a run of similar photos needs no taps.
 3. **Nudge the boxes**: drag to move, use the red handles to resize, **+ Box** to draw another, Delete to remove. Tap a box to print `RE` / `LE` / `OD` / `OS` / `OU` or custom text on it.
 4. Press **Done** (or Enter), then **›** (or →, or swipe the photo left). The filmstrip along the bottom shows every photo with its boxes: a green tick means done, a red `?` means no boxes yet. Tap any thumbnail to jump to it.
@@ -35,6 +35,16 @@ The photo **⋯** menu also holds the occasional tools: **Rotate**, **Straighten
 Keys: ← / → previous / next, Enter done, Delete removes the selected box, Esc deselects.
 
 Exports are re-encoded from scratch. They have solid black boxes (never blur), no EXIF or GPS metadata, and generic names (`case-image-001.jpg`…). The ZIP carries no timestamps or original file names.
+
+## Scanned PDFs
+
+Import a PDF (or drop it, share it from Android, or include it in **Import folder**) and **each page opens as its own photo**, named like `notes.pdf — p3 of 8`, in page order. Everything else works the same: types, boxes, layouts, Done, export, Copy and Save. Save suggests a name like `notes p3 (redacted).jpg`.
+
+- **Why images, not an edited PDF.** A black box drawn on a PDF can leave the text underneath: scanners often add a hidden OCR text layer, and PDFs carry a title, author and other metadata. The app instead draws each page into pixels on this device, at 200 dpi (an A4 page is about 1650 × 2340 px), and every export is built only from those pixels, so hidden text, metadata, annotations and attachments can't reach the output.
+- **Originals are never replaced.** PDF pages always save as new image files, even when opened with **Import folder**.
+- **Handwriting is not detected.** Box any name, date of birth, MRN or signature written anywhere on each page yourself.
+- Password-protected PDFs can't be opened; save an unprotected copy first. A PDF of more than 60 pages asks before opening every page.
+- The PDF reader (pdf.js) is bundled with the app and cached for offline use; nothing is fetched from anywhere else.
 
 ## Replacing the originals (desktop Chrome or Edge only)
 

@@ -77,7 +77,7 @@ export async function saveCurrent(img: WorkImage): Promise<SaveResult> {
     }
 
     // A new file. The save dialog must open straight from the click, so ask for it before rendering.
-    const suggested = `${stem(img.name)} (redacted).${EXT[format]}`;
+    const suggested = `${img.saveStem ?? stem(img.name)} (redacted).${EXT[format]}`;
     if (hasSavePicker()) {
       const handle = await pickSaveFile(suggested, format, EXT[format]);
       if (!handle) return { ok: false, cancelled: true };

@@ -40,7 +40,9 @@ export default defineConfig({
       filename: 'sw.ts',
       injectRegister: false,
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,svg}'],
+        // App files plus pdf.js (worker, decoders, fonts), so PDFs open offline too.
+        globPatterns: ['**/*.{js,mjs,css,html,svg,wasm,pfb,ttf,icc}'],
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
       manifest: {
         name: 'Deidentifier',
@@ -61,7 +63,7 @@ export default defineConfig({
           action: './share-target',
           method: 'POST',
           enctype: 'multipart/form-data',
-          params: { files: [{ name: 'images', accept: ['image/*'] }] },
+          params: { files: [{ name: 'images', accept: ['image/*', 'application/pdf', '.pdf'] }] },
         },
       } as Record<string, unknown>,
     }),

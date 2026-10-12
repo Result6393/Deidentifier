@@ -114,14 +114,24 @@ export function Workspace({ onImport, onCamera, onImportFolder }: { onImport: ()
       if (typing(e.target) || straighten || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === 'ArrowRight') go(1);
       else if (e.key === 'ArrowLeft') go(-1);
-      else if ((e.key === 'Delete' || e.key === 'Backspace') && selected) removeBox(selected);
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
+        // Act on the photo on screen now, not the one from the last render (keys can arrive faster).
+        const cur = currentImage();
+        if (!cur || !cur.boxes.some((b) => b.id === selected)) return;
+        cur.boxes = cur.boxes.filter((b) => b.id !== selected);
+        cur.edited = true;
+        setSelected(null);
+        changed();
+      }
       else if (e.key === 'Escape') {
         setSelected(null);
         setDrawMode(false);
       } else if (e.key === 'f' || e.key === 'F') setZoom(0);
       else if (e.key === '1') setZoom(1);
-      else if (e.key === 'Enter' && img) {
-        img.done = !img.done;
+      else if (e.key === 'Enter') {
+        const cur = currentImage();
+        if (!cur) return;
+        cur.done = !cur.done;
         changed();
       } else return;
       e.preventDefault();
@@ -228,11 +238,13 @@ export function Workspace({ onImport, onCamera, onImportFolder }: { onImport: ()
   };
 
   const saveNow = async () => {
-    if (!img || saving || isSaved(img)) return;
+    // The photo on screen at the moment of the click or Ctrl+S.
+    const target = currentImage();
+    if (!target || saving || isSaved(target)) return;
     setSaving(true);
     setMessage(null);
     try {
-      const r = await saveCurrent(img);
+      const r = await saveCurrent(target);
       if (r.ok) setMessage(r.message);
       else if (!r.cancelled) setMessage(r.message);
     } finally {

@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeFixtures } from './fixtures';
+import { makePdf, type PdfOptions } from './pdf-fixtures';
 
 const APP_VERSION = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version;
 
@@ -82,6 +83,28 @@ async function sample(page: Page, bytes: Buffer, points: [number, number][]) {
   );
 }
 
+
+/** A fixture photo as a JPEG (the "scanned page" inside a test PDF). */
+async function jpegOf(page: Page, file: string) {
+  const r = await page.evaluate(async (b64) => {
+    const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))]));
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    c.getContext('2d')!.drawImage(bmp, 0, 0);
+    const bytes = new Uint8Array(await (await c.convertToBlob({ type: 'image/jpeg', quality: 0.9 })).arrayBuffer());
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return { b64: btoa(s), width: bmp.width, height: bmp.height };
+  }, readFileSync(file).toString('base64'));
+  return { jpeg: Buffer.from(r.b64, 'base64'), width: r.width, height: r.height };
+}
+
+/** A scanned-notes style PDF built from fixture photos, as an upload payload. */
+async function pdfUpload(page: Page, name: string, files: string[], opts: PdfOptions = {}) {
+  const pages = [];
+  for (const f of files) pages.push(await jpegOf(page, f));
+  return { name, mimeType: 'application/pdf', buffer: makePdf(pages, opts) };
+}
+
 async function exportZip(page: Page) {
   await page.getByTestId('export-menu').click();
   const download = page.waitForEvent('download');
@@ -122,6 +145,17 @@ test('batch: import three, set types, step through, export one ZIP of redacted i
   const origin = new URL(page.url()).origin;
   expect(requests.filter((r) => !r.url.startsWith(origin) && !r.url.startsWith('data:') && !r.url.startsWith('blob:'))).toEqual([]);
   expect(requests.filter((r) => r.method !== 'GET')).toEqual([]);
+});
+
+test('fast Enter / → presses mark each photo done (keys act on the photo on screen, not a stale one)', async ({ page }) => {
+  await page.getByTestId('file-input').setInputFiles(Array(5).fill(fixtures.notes));
+  await expect(page.locator('.film')).toHaveCount(5);
+  await type(page, 'notes');
+  for (let i = 0; i < 5; i++) {
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowRight');
+  }
+  await expect(page.locator('.film-badge.done')).toHaveCount(5);
 });
 
 test('navigation: arrow keys, Prev/Next, filmstrip, last type carries forward', async ({ page }) => {
@@ -389,7 +423,7 @@ test('ending the session leaves no patient data in browser storage', async ({ pa
   });
   expect(stored.ls).toEqual([]);
   expect(stored.dbs).toEqual([]);
-  for (const path of stored.cached) expect(path).toMatch(/\.(js|css|html|svg|png|webmanifest)$|\/$/);
+  for (const path of stored.cached) expect(path).toMatch(/\.(js|mjs|css|html|svg|png|webmanifest|wasm|pfb|ttf|icc)$|\/$/); // app files only (incl. the bundled PDF reader), never photos or documents
 });
 
 test('a dozen photos open quickly and stay editable', async ({ page }) => {
@@ -429,7 +463,7 @@ test.afterAll(() => {
 // Chromium's origin-private file system gives real FileSystemDirectoryHandles, so the real
 // read / replace / atomic-write code runs. Only the native folder picker is stood in for.
 test.describe('files on disk', () => {
-  type Seed = { name: string; from?: string; as?: string; text?: string };
+  type Seed = { name: string; from?: string; as?: string; text?: string; bytes?: Buffer };
 
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
@@ -446,7 +480,7 @@ test.describe('files on disk', () => {
   });
 
   async function seed(page: Page, files: Seed[]) {
-    const prepared = files.map((f) => ({ name: f.name, as: f.as, text: f.text, b64: f.from ? readFileSync(f.from).toString('base64') : null }));
+    const prepared = files.map((f) => ({ name: f.name, as: f.as, text: f.text, b64: f.from ? readFileSync(f.from).toString('base64') : null, raw: f.bytes ? f.bytes.toString('base64') : null }));
     await page.evaluate(async (list) => {
       const root = await navigator.storage.getDirectory();
       for (const f of list) {
@@ -456,7 +490,8 @@ test.describe('files on disk', () => {
           const c = new OffscreenCanvas(bmp.width, bmp.height);
           c.getContext('2d')!.drawImage(bmp, 0, 0);
           blob = await c.convertToBlob({ type: f.as ?? 'image/png', quality: 0.9 });
-        } else blob = new Blob([f.text ?? '']);
+        } else if (f.raw) blob = new Blob([Uint8Array.from(atob(f.raw), (c) => c.charCodeAt(0))]);
+        else blob = new Blob([f.text ?? '']);
         const w = await (await root.getFileHandle(f.name, { create: true })).createWritable();
         await w.write(blob);
         await w.close();
@@ -850,6 +885,31 @@ test.describe('files on disk', () => {
     expect((await disk(page))['a.jpg'].hash).not.toBe(edited['a.jpg'].hash);
   });
 
+
+  test('Import folder also opens PDFs; their pages save as new files and are never overwritten', async ({ page }) => {
+    const pdf = await pdfUpload(page, 'scan.pdf', [fixtures.notes, fixtures.cirrus]);
+    await seed(page, [{ name: 'a.jpg', from: fixtures.notes, as: 'image/jpeg' }, { name: 'scan.pdf', bytes: pdf.buffer }]);
+    const before = await disk(page);
+    await importFolder(page);
+    await expect(page.locator('.film')).toHaveCount(3);
+    await expect(page.getByText(/Opened 2 pages from 1 PDF; PDF pages save as new files/)).toBeVisible();
+    await type(page, 'notes'); // a.jpg
+    await expect(page.getByTestId('save')).toHaveText('Overwrite');
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('filename')).toHaveText('scan.pdf — p1 of 2');
+    await expect(page.locator('.rbox')).toHaveCount(1); // the type carried forward
+    await expect(page.getByTestId('save')).toHaveText('Save');
+    await openExport(page);
+    await expect(page.getByTestId('export-overwrite')).toContainText('1 changed'); // only a.jpg
+    await page.getByTestId('export-overwrite').click();
+    await expect(page.getByTestId('dialog')).toContainText('a.jpg');
+    await expect(page.getByTestId('dialog')).not.toContainText('scan.pdf');
+    await page.getByTestId('dialog-tick').check();
+    await page.getByTestId('dialog-go').click();
+    await expect(page.getByText('Replaced 1 original.')).toBeVisible();
+    expect((await disk(page))['scan.pdf']).toEqual(before['scan.pdf']);
+  });
+
   test('ending the session forgets the folder handles', async ({ page }) => {
     await seed(page, threeOnDisk());
     await importFolder(page);
@@ -1220,6 +1280,106 @@ test.describe('rotating, moving and deleting boxes', () => {
       });
     });
   }
+});
+
+
+test.describe('scanned PDFs', () => {
+  const SECRET = { hiddenText: 'TESTPERSON Alexandra MRN 7654321', title: 'TESTPERSON Alexandra notes', author: 'Dr Jane Smith' };
+
+  test.beforeEach(async ({ page }) => {
+    // Use the download path for Save (headless Chromium can't answer the native save dialog).
+    await page.addInitScript(() => delete (window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker);
+    await page.goto('/');
+  });
+
+  test('each page becomes a photo; exports contain only pixels, never the hidden text or metadata', async ({ page }) => {
+    const requests = trackRequests(page);
+    const upload = await pdfUpload(page, 'notes-scan.pdf', [fixtures.notes, fixtures.cirrus, fixtures.notes], SECRET);
+    expect(upload.buffer.includes(Buffer.from('TESTPERSON'))).toBe(true); // the PDF really carries them
+    await page.getByTestId('file-input').setInputFiles(upload);
+    await expect(page.locator('.film')).toHaveCount(3);
+    await expect(page.getByTestId('filename')).toHaveText('notes-scan.pdf — p1 of 3');
+    await expect(page.getByText(/PDF pages open as images\. Handwriting is not detected/)).toBeVisible();
+    // Rendered at 200 dpi: an A4 page is about 1650 px wide.
+    await expect.poll(() => page.locator('canvas.display.full').evaluate((c: HTMLCanvasElement) => c.width)).toBeGreaterThan(1600);
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('filename')).toHaveText('notes-scan.pdf — p2 of 3');
+    await page.keyboard.press('ArrowLeft');
+
+    await type(page, 'notes');
+    for (let i = 0; i < 3; i++) {
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('ArrowRight');
+    }
+    await expect(page.locator('.film-badge.done')).toHaveCount(3);
+    const files = await exportZip(page);
+    expect(Object.keys(files)).toEqual(['case-image-001.jpg', 'case-image-002.jpg', 'case-image-003.jpg']);
+    for (const bytes of Object.values(files)) {
+      expect(bytes.subarray(0, 2).toString('hex')).toBe('ffd8');
+      expect(bytes.includes(Buffer.from('Exif'))).toBe(false);
+      for (const secret of ['TESTPERSON', 'Alexandra', '7654321', 'Jane Smith']) expect(bytes.includes(Buffer.from(secret))).toBe(false);
+    }
+    // The sticker area of the page is covered.
+    for (const rgb of await sample(page, files['case-image-001.jpg'], [[0.75, 0.08], [0.9, 0.15]])) expect(Math.max(...rgb)).toBeLessThan(25);
+    // Nothing left this origin while reading the PDF (pdf.js and its worker are bundled).
+    const origin = new URL(page.url()).origin;
+    expect(requests.filter((r) => !r.url.startsWith(origin) && !r.url.startsWith('data:') && !r.url.startsWith('blob:'))).toEqual([]);
+    expect(requests.filter((r) => r.method !== 'GET')).toEqual([]);
+  });
+
+  test('a PDF page saves as a new "page (redacted)" file, never "Overwrite"', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles(await pdfUpload(page, 'notes-scan.pdf', [fixtures.notes, fixtures.notes]));
+    await expect(page.locator('.film')).toHaveCount(2);
+    await type(page, 'notes');
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('save')).toHaveText('Save');
+    const download = page.waitForEvent('download');
+    await page.getByTestId('save').click();
+    expect((await download).suggestedFilename()).toBe('notes-scan p2 (redacted).jpg');
+  });
+
+  test('photos and PDFs chosen together keep their order; dropping a PDF works too', async ({ page }) => {
+    const pdf = await pdfUpload(page, 'two-pages.pdf', [fixtures.notes, fixtures.cirrus]);
+    await page.getByTestId('file-input').setInputFiles([
+      { name: 'first.png', mimeType: 'image/png', buffer: readFileSync(fixtures.notes) },
+      pdf,
+      { name: 'last.png', mimeType: 'image/png', buffer: readFileSync(fixtures.cirrus) },
+    ]);
+    await expect(page.locator('.film')).toHaveCount(4);
+    const names: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      names.push((await page.getByTestId('filename').textContent())!);
+      await page.keyboard.press('ArrowRight');
+    }
+    expect(names).toEqual(['first.png', 'two-pages.pdf — p1 of 2', 'two-pages.pdf — p2 of 2', 'last.png']);
+
+    await page.evaluate((b64) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], 'dropped.pdf', { type: 'application/pdf' }));
+      window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    }, pdf.buffer.toString('base64'));
+    await expect(page.locator('.film')).toHaveCount(6);
+  });
+
+  test('a password-protected or broken PDF says why it could not be opened', async ({ page }) => {
+    await page.getByTestId('file-input').setInputFiles(await pdfUpload(page, 'locked.pdf', [fixtures.notes], { encrypted: true }));
+    await expect(page.getByText('Couldn’t open “locked.pdf”: it is password-protected'.replace('’', "'"))).toBeVisible();
+    await page.getByTestId('file-input').setInputFiles({ name: 'broken.pdf', mimeType: 'application/pdf', buffer: Buffer.from('this is not a pdf') });
+    await expect(page.getByText(/Couldn't open “broken\.pdf”: it doesn't look like a valid PDF/)).toBeVisible();
+    await expect(page.locator('.film')).toHaveCount(0);
+  });
+
+  test('PDFs open offline once the app is installed', async ({ page, context }) => {
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.reload();
+    await expect(page.getByTestId('app-menu').locator('.dot')).toBeVisible();
+    const upload = await pdfUpload(page, 'offline.pdf', [fixtures.notes, fixtures.cirrus]);
+    await context.setOffline(true);
+    await page.reload();
+    await page.getByTestId('file-input').setInputFiles(upload);
+    await expect(page.locator('.film')).toHaveCount(2);
+    await expect(page.getByTestId('filename')).toHaveText('offline.pdf — p1 of 2');
+  });
 });
 
 test.describe('touch', () => {
